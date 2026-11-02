@@ -1,23 +1,4 @@
 /// <reference types="cypress" />
-
-/**
- * Staff LMS - Call Form (Call/Visit Form migrated from SOA Excel, columns AH → ED)
- *
- * Reference: "Dev Ticket: Migrate SOA Excel Call/Visit Form → LALCO Staff App"
- *   Section 1   - Customer call            (AH:AY)
- *   Section 2   - Guarantor call           (AZ:BQ)  mirror of section 1
- *   Section 3   - Car collateral check     (BR:BT)
- *   Section 4-5 - Litigation               (BV:CR)  Legal team only
- *   Section 6   - Village master check     (CU:DL)
- *   Section 7   - Agent contact check      (DM:ED)  mirror of section 6
- *
- * Selector notes:
- *   - Every form field gets a unique id: `field-<dot.path>`  e.g. field-customer.call_status
- *     (for dropdowns the id is on the MUI combobox div, for text/date/number it is on the <input>)
- *   - Every section card gets an id: `section-<key>`  e.g. section-village_master
- *   - Section titles may be rendered with or without numbering ("1. Customer call" / "Customer call"),
- *     so titles are matched with an optional numeric prefix.
- */
 describe('Staff LMS - Open Call Form', () => {
 
     // -------------------------------------------------------------------------
@@ -512,6 +493,30 @@ describe('Staff LMS - Open Call Form', () => {
             field('customer.comments').clear().type('Will pay next week').should('have.value', 'Will pay next week');
         });
 
+        it('should disable Willing to pay and hide payment fields when Call status is not Answered', () => {
+            openCallForm();
+            openSection('customer');
+            selectOption('customer.call_status', 'Answered');
+            selectOption('customer.willing_to_pay', 'YES');
+            field('customer.pay_amount').clear().type('400');
+
+            selectOption('customer.call_status', 'No answer');
+            field('customer.willing_to_pay').should('have.class', 'Mui-disabled');
+            field('customer.pay_amount').should('not.exist');
+        });
+
+        it('should reset all fields in Section 1 when the section Clear button is clicked', () => {
+            openCallForm();
+            openSection('customer');
+            selectOption('customer.call_status', 'Answered');
+            selectOption('customer.willing_to_pay', 'YES');
+            field('customer.source_of_funds').clear().type('Business income');
+
+            clearSection('customer');
+            field('customer.pay_amount').should('not.exist');
+            cy.get('[id="section-customer"]').should('contain.text', 'Unsaved changes');
+        });
+
         it('should fill Section 1 - Customer call with Answered status and YES willing to pay, then save draft', () => {
             openCallForm();
             openSection('customer');
@@ -665,6 +670,22 @@ describe('Staff LMS - Open Call Form', () => {
             selectFirstOption('customer.assets.land.city_id');
             field('customer.assets.land.village_id').should('not.have.class', 'Mui-disabled');
         });
+
+        it('should hide and clear asset sub-fields when Have/No changes from YES to NO (AO, AR, AV)', () => {
+            openCallForm();
+            openSection('customer');
+
+            selectOption('customer.assets.car.has_asset', 'YES');
+            field('customer.assets.car.maker_model_year').clear().type('Toyota Hilux 2022');
+            field('customer.assets.car.value').clear().type('15000');
+
+            selectOption('customer.assets.car.has_asset', 'NO');
+            field('customer.assets.car.maker_model_year').should('not.exist');
+
+            selectOption('customer.assets.car.has_asset', 'YES');
+            field('customer.assets.car.maker_model_year').should('have.value', '');
+            field('customer.assets.car.value').should('have.value', '');
+        });
     });
 
     // =========================================================================
@@ -724,6 +745,23 @@ describe('Staff LMS - Open Call Form', () => {
             });
         });
 
+        it('should hide and clear Guarantor payment fields when Willing to pay changes from YES to NO (BA:BF)', () => {
+            withGuarantor(() => {
+                selectOption('guarantor.call_status', 'Answered');
+                selectOption('guarantor.willing_to_pay', 'YES');
+
+                field('guarantor.pay_amount').clear().type('300');
+                field('guarantor.source_of_funds').clear().type('Family business');
+
+                selectOption('guarantor.willing_to_pay', 'NO');
+                field('guarantor.pay_amount').should('not.exist');
+
+                selectOption('guarantor.willing_to_pay', 'YES');
+                field('guarantor.pay_amount').should('have.value', '');
+                field('guarantor.source_of_funds').should('have.value', '');
+            });
+        });
+
         it('should render the guarantor Asset group with Car / Only land / Land + house triggers (BG, BJ, BN)', () => {
             withGuarantor(() => {
                 cy.get('[id="section-guarantor"]').contains('[class*="MuiTypography-subtitle2"]', /Assets/i).should('be.visible');
@@ -737,6 +775,25 @@ describe('Staff LMS - Open Call Form', () => {
 
                 selectOption('guarantor.assets.land_house.has_asset', 'YES');
                 field('guarantor.assets.land_house.area_m2').should('be.visible');
+            });
+        });
+
+        it('should fill Section 2 - Guarantor call and save draft', () => {
+            withGuarantor(() => {
+                cy.intercept('POST', '**/api/callDraft/section').as('saveGuarantorDraft');
+                clearSection('guarantor');
+                selectOption('guarantor.call_status', 'No answer');
+
+                cy.get('[id="section-guarantor"]').within(() => {
+                    cy.contains('button', /Save draft/i).click();
+                });
+
+                cy.wait('@saveGuarantorDraft').then(({ request, response }) => {
+                    expect(response.statusCode).to.eq(200);
+                    expect(request.body.section).to.eq('guarantor');
+                    expect(request.body.data.call_status).to.eq('no_answer');
+                });
+                cy.get('[id="section-guarantor"]').should('not.contain.text', 'Unsaved changes');
             });
         });
     });
@@ -808,6 +865,28 @@ describe('Staff LMS - Open Call Form', () => {
                     .find('input')
                     .should('have.attr', 'type', 'date');
             });
+        });
+
+        it('should fill Section 3 - Car collateral check and save draft', () => {
+            openCallForm();
+            openSection('car');
+            cy.intercept('POST', '**/api/callDraft/section').as('saveCarDraft');
+
+            clearSection('car');
+            selectOption('car.gps_status', 'Online');
+            selectOption('car.car_location', 'Customer');
+            field('car.describe_gps').clear().type('Verified online with customer.');
+
+            cy.get('[id="section-car"]').within(() => {
+                cy.contains('button', /Save draft/i).click();
+            });
+
+            cy.wait('@saveCarDraft').then(({ request, response }) => {
+                expect(response.statusCode).to.eq(200);
+                expect(request.body.section).to.eq('car');
+                expect(request.body.data.car_location).to.eq('customer');
+            });
+            cy.get('[id="section-car"]').should('not.contain.text', 'Unsaved changes');
         });
     });
 
@@ -933,6 +1012,26 @@ describe('Staff LMS - Open Call Form', () => {
             });
         });
 
+        it('should validate Guarantor litigation block fields, dropdowns and Special case remarks (CH:CR)', () => {
+            openLitigation(() => {
+                selectOption('litigation.is_litigation', 'YES');
+                selectOption('litigation.litigation_with', 'Only Guarantor');
+
+                ['court_or_police', 'officer_name', 'tel', 'last_hearing_date', 'province_id', 'case_stage', 'case_type']
+                    .forEach((f) => assertRequired(`litigation.guarantor.${f}`));
+
+                assertDropdownOptions('litigation.guarantor.case_stage', CASE_STAGE_OPTIONS);
+                assertDropdownOptions('litigation.guarantor.case_type', CASE_TYPE_OPTIONS);
+
+                selectOption('litigation.guarantor.case_type', 'Normal');
+                field('litigation.guarantor.remarks_reason').should('not.exist');
+
+                selectOption('litigation.guarantor.case_type', 'Special');
+                field('litigation.guarantor.remarks_reason').should('be.visible');
+                assertDropdownOptions('litigation.guarantor.remarks_reason', LITIGATION_REMARK_OPTIONS);
+            });
+        });
+
         it('should hide "Litigation with" and all blocks again when Is Litigation is changed back to NO', () => {
             openLitigation(() => {
                 selectOption('litigation.is_litigation', 'YES');
@@ -943,6 +1042,25 @@ describe('Staff LMS - Open Call Form', () => {
                 field('litigation.litigation_with').should('not.exist');
                 field('litigation.customer.court_or_police').should('not.exist');
                 field('litigation.guarantor.court_or_police').should('not.exist');
+            });
+        });
+
+        it('should save draft for Section 4-5 - Litigation', () => {
+            openLitigation(() => {
+                cy.intercept('POST', '**/api/callDraft/section').as('saveLitigationDraft');
+                clearSection('litigation');
+                selectOption('litigation.is_litigation', 'NO');
+
+                cy.get('[id="section-litigation"]').within(() => {
+                    cy.contains('button', /Save draft/i).click();
+                });
+
+                cy.wait('@saveLitigationDraft').then(({ request, response }) => {
+                    expect(response.statusCode).to.eq(200);
+                    expect(request.body.section).to.eq('litigation');
+                    expect(request.body.data.is_litigation).to.eq('no');
+                });
+                cy.get('[id="section-litigation"]').should('not.contain.text', 'Unsaved changes');
             });
         });
     });
@@ -1004,6 +1122,20 @@ describe('Staff LMS - Open Call Form', () => {
                     .clear()
                     .type('Village chief')
                     .should('have.value', 'Village chief');
+            });
+
+            it('should cascade Customer current location dropdowns (Province → City → Village)', () => {
+                openCallForm();
+                clearSection(key);
+
+                field(`${key}.location.city_id`).should('have.class', 'Mui-disabled');
+                field(`${key}.location.village_id`).should('have.class', 'Mui-disabled');
+
+                selectFirstOption(`${key}.location.province_id`);
+                field(`${key}.location.city_id`).should('not.have.class', 'Mui-disabled');
+
+                selectFirstOption(`${key}.location.city_id`);
+                field(`${key}.location.village_id`).should('not.have.class', 'Mui-disabled');
             });
 
             it('should render its own Asset group with the same show/hide rules', () => {
@@ -1116,6 +1248,29 @@ describe('Staff LMS - Open Call Form', () => {
             cy.get('@addCall.all').should('have.length', 0);
         });
 
+        it('should require Asset sub-fields when Car, Only land, or Land + house is set to YES and sub-fields are empty', () => {
+            openCallForm();
+            clearSection('customer');
+            selectOption('customer.call_status', 'No answer');
+            selectOption('customer.assets.car.has_asset', 'YES');
+            selectOption('customer.assets.land.has_asset', 'YES');
+            selectOption('customer.assets.land_house.has_asset', 'YES');
+
+            clickFinalSubmit();
+            openSection('customer');
+
+            assertFieldError('customer.assets.car.maker_model_year', MSG_REQUIRED);
+            assertFieldError('customer.assets.car.value', MSG_REQUIRED);
+            assertFieldError('customer.assets.land.area_m2', MSG_REQUIRED);
+            assertFieldError('customer.assets.land.value', MSG_REQUIRED);
+            assertFieldError('customer.assets.land.village_id', MSG_REQUIRED);
+            assertFieldError('customer.assets.land_house.area_m2', MSG_REQUIRED);
+            assertFieldError('customer.assets.land_house.value', MSG_REQUIRED);
+            assertFieldError('customer.assets.land_house.village_id', MSG_REQUIRED);
+
+            cy.get('@addCall.all').should('have.length', 0);
+        });
+
         it('should require Litigation fields when "Only Customer" is selected and the block is empty', () => {
             openCallForm();
             openSection('litigation');
@@ -1133,6 +1288,193 @@ describe('Staff LMS - Open Call Form', () => {
 
                 cy.get('@addCall.all').should('have.length', 0);
             });
+        });
+
+        it('should require Guarantor litigation fields (CH:CP) when "Only Guarantor" is selected and the block is empty', () => {
+            openCallForm();
+            openSection('litigation');
+            ifSectionEditable('litigation', 'litigation.is_litigation', () => {
+                clearSection('litigation');
+                selectOption('litigation.is_litigation', 'YES');
+                selectOption('litigation.litigation_with', 'Only Guarantor');
+
+                clickFinalSubmit();
+                cy.contains(/fields need fixing before you can submit/i).should('be.visible');
+
+                openSection('litigation');
+                ['court_or_police', 'officer_name', 'tel', 'last_hearing_date', 'province_id', 'case_stage', 'case_type']
+                    .forEach((f) => assertFieldError(`litigation.guarantor.${f}`, MSG_REQUIRED));
+
+                cy.get('@addCall.all').should('have.length', 0);
+            });
+        });
+
+        it('should require Details when Litigation with = "3rd Party and Others" and Details is empty', () => {
+            openCallForm();
+            openSection('litigation');
+            ifSectionEditable('litigation', 'litigation.is_litigation', () => {
+                clearSection('litigation');
+                selectOption('litigation.is_litigation', 'YES');
+                selectOption('litigation.litigation_with', '3rd Party and Others');
+
+                clickFinalSubmit();
+                cy.contains(/fields need fixing before you can submit/i).should('be.visible');
+
+                openSection('litigation');
+                assertFieldError('litigation.details', MSG_REQUIRED);
+
+                cy.get('@addCall.all').should('have.length', 0);
+            });
+        });
+
+        it('should fill in all fields across all sections and submit the form via Final submit', () => {
+            // Allow POST /api/addCall to reach the real backend for this end-to-end submission test
+            cy.intercept('POST', '**/api/addCall*', (req) => req.continue()).as('submitFullCall');
+
+            openCallForm();
+
+            // Helper to fill a cascaded Province -> City -> Village address block
+            const fillCascadeAddress = (basePath) => {
+                selectFirstOption(`${basePath}.province_id`);
+                field(`${basePath}.city_id`).should('not.have.class', 'Mui-disabled');
+                selectFirstOption(`${basePath}.city_id`);
+                field(`${basePath}.village_id`).should('not.have.class', 'Mui-disabled');
+                selectFirstOption(`${basePath}.village_id`);
+            };
+
+            // 1. Section 1 - Customer call (AH:AY)
+            clearSection('customer');
+            selectOption('customer.call_status', 'Answered');
+            selectOption('customer.willing_to_pay', 'YES');
+            selectOption('customer.who_will_pay', 'Themselves');
+            field('customer.pay_date').clear().type(getFutureDate());
+            field('customer.pay_amount').clear().type('500');
+            cy.get('body').then(($body) => {
+                if ($body.find(fieldSel('customer.pay_currency')).length) {
+                    selectOption('customer.pay_currency', 'USD');
+                }
+            });
+            field('customer.source_of_funds').clear().type('Salary');
+            field('customer.comments').clear().type('Customer agreed to pay in full.');
+
+            // Customer Assets (Car, Only land, Land + house)
+            selectOption('customer.assets.car.has_asset', 'YES');
+            field('customer.assets.car.maker_model_year').clear().type('Toyota Hilux 2021');
+            field('customer.assets.car.value').clear().type('12000');
+
+            selectOption('customer.assets.land.has_asset', 'YES');
+            field('customer.assets.land.area_m2').clear().type('200');
+            field('customer.assets.land.value').clear().type('15000');
+            fillCascadeAddress('customer.assets.land');
+
+            selectOption('customer.assets.land_house.has_asset', 'YES');
+            field('customer.assets.land_house.area_m2').clear().type('150');
+            field('customer.assets.land_house.value').clear().type('25000');
+            fillCascadeAddress('customer.assets.land_house');
+
+            // 2. Section 2 - Guarantor call (AZ:BQ)
+            openSection('guarantor');
+            cy.get('[id="section-guarantor"]').then(($card) => {
+                if (!/This contract has no active guarantor/i.test($card.text())) {
+                    clearSection('guarantor');
+                    if ($card.find(fieldSel('guarantor.guarantor_id')).length) {
+                        selectFirstOption('guarantor.guarantor_id');
+                    }
+                    selectOption('guarantor.call_status', 'Answered');
+                    selectOption('guarantor.willing_to_pay', 'YES');
+                    selectOption('guarantor.who_will_pay', 'Family');
+                    field('guarantor.pay_date').clear().type(getFutureDate());
+                    field('guarantor.pay_amount').clear().type('300');
+                    cy.get('body').then(($body) => {
+                        if ($body.find(fieldSel('guarantor.pay_currency')).length) {
+                            selectOption('guarantor.pay_currency', 'USD');
+                        }
+                    });
+                    field('guarantor.source_of_funds').clear().type('Family business');
+                    field('guarantor.comments').clear().type('Guarantor confirmed support.');
+
+                    selectOption('guarantor.assets.car.has_asset', 'NO');
+                    selectOption('guarantor.assets.land.has_asset', 'NO');
+                    selectOption('guarantor.assets.land_house.has_asset', 'NO');
+                }
+            });
+
+            // 3. Section 3 - Car collateral check (BR:BT)
+            clearSection('car');
+            selectOption('car.gps_status', 'Online');
+            selectOption('car.car_location', 'Customer');
+            field('car.describe_gps').clear().type('GPS online at customer residence.');
+
+            // 4. Section 4-5 - Litigation (BV:CR)
+            openSection('litigation');
+            ifSectionEditable('litigation', 'litigation.is_litigation', () => {
+                clearSection('litigation');
+                selectOption('litigation.is_litigation', 'YES');
+                selectOption('litigation.litigation_with', 'Both Customer and Guarantor');
+
+                // Customer litigation block (BW:CG)
+                field('litigation.customer.court_or_police').clear().type('Vientiane People Court');
+                field('litigation.customer.officer_name').clear().type('Somchai Phommavong');
+                field('litigation.customer.tel').clear().type('02055551234');
+                field('litigation.customer.claimed_amount').clear().type('5000');
+                field('litigation.customer.last_hearing_date').clear().type(formatDate(-7));
+                field('litigation.customer.next_hearing_date').clear().type(getFutureDate());
+                selectFirstOption('litigation.customer.province_id');
+                selectOption('litigation.customer.case_stage', '1st court');
+                selectOption('litigation.customer.case_type', 'Special');
+                selectOption('litigation.customer.remarks_reason', 'car seized and held by police etc');
+                field('litigation.customer.comments').clear().type('Customer litigation hearing scheduled.');
+
+                // Guarantor litigation block (CH:CR)
+                field('litigation.guarantor.court_or_police').clear().type('Chanthabuly Police Office');
+                field('litigation.guarantor.officer_name').clear().type('Khamla Vongsa');
+                field('litigation.guarantor.tel').clear().type('02055556789');
+                field('litigation.guarantor.claimed_amount').clear().type('2500');
+                field('litigation.guarantor.last_hearing_date').clear().type(formatDate(-5));
+                field('litigation.guarantor.next_hearing_date').clear().type(getFutureDate());
+                selectFirstOption('litigation.guarantor.province_id');
+                selectOption('litigation.guarantor.case_stage', 'Police');
+                selectOption('litigation.guarantor.case_type', 'Normal');
+                field('litigation.guarantor.comments').clear().type('Guarantor litigation recorded.');
+            });
+
+            // 5. Section 6 - Village master check (CU:DL)
+            clearSection('village_master');
+            field('village_master.contact_name').clear().type('Bounmy Keomany');
+            field('village_master.contact_phone').clear().type('02055552345');
+            selectOption('village_master.call_status', 'Answered');
+            field('village_master.relationship').clear().type('Village chief');
+            selectOption('village_master.still_living', 'YES');
+            field('village_master.customer_phone').clear().type('02055553456');
+            fillCascadeAddress('village_master.location');
+            selectOption('village_master.assets.car.has_asset', 'NO');
+            selectOption('village_master.assets.land.has_asset', 'NO');
+            selectOption('village_master.assets.land_house.has_asset', 'NO');
+
+            // 6. Section 7 - Agent contact check (DM:ED)
+            clearSection('agent');
+            field('agent.contact_name').clear().type('Somsack Phimmasone');
+            field('agent.contact_phone').clear().type('02055554567');
+            selectOption('agent.call_status', 'Answered');
+            field('agent.relationship').clear().type('Sales agent');
+            selectOption('agent.still_living', 'YES');
+            field('agent.customer_phone').clear().type('02055553456');
+            fillCascadeAddress('agent.location');
+            selectOption('agent.assets.car.has_asset', 'NO');
+            selectOption('agent.assets.land.has_asset', 'NO');
+            selectOption('agent.assets.land_house.has_asset', 'NO');
+
+            // Submit the entire form via Final submit
+            clickFinalSubmit();
+
+            cy.wait('@submitFullCall').then(({ request, response }) => {
+                expect(response.statusCode).to.be.oneOf([200, 201]);
+                expect(request.body).to.have.property('contract_no');
+                expect(request.body.sections).to.include.all.keys('customer', 'car', 'village_master', 'agent');
+            });
+
+            // After successful submission, the user is redirected back to Tasks
+            cy.url().should('include', '/tasks');
         });
     });
 });

@@ -2,6 +2,24 @@
 
 describe('Staff LMS - Legal Page', () => {
 
+    // Helper: get the Contract No filter input via its label (avoids hardcoded placeholder contract numbers)
+    const getContractNoInput = () =>
+        cy.contains('label', /^Contract No$/i).parent().find('input');
+
+    // Helper: get the Customer Name filter input via its label (avoids hardcoded placeholder names)
+    const getCustomerNameInput = () =>
+        cy.contains('label', /^Customer Name$/i).parent().find('input');
+
+    // Helper: dynamically pick a random row from the loaded table and return its index, Contract No, and Customer Name
+    const pickDynamicRow = () =>
+        cy.get('tbody tr').should('have.length.greaterThan', 0).then(($rows) => {
+            const rowIndex = Math.floor(Math.random() * $rows.length);
+            const $row = $rows.eq(rowIndex);
+            const contractNo = $row.find('td').eq(1).text().trim();
+            const customerName = $row.find('td').eq(2).text().trim();
+            return { rowIndex, contractNo, customerName };
+        });
+
     beforeEach(() => {
         cy.intercept('GET', '**/api/**').as('apiRequest');
 
@@ -37,10 +55,10 @@ describe('Staff LMS - Legal Page', () => {
 
             // Contract No & Customer Name search inputs
             cy.contains('label', /^Contract No$/i).should('be.visible');
-            cy.get('input[placeholder="e.g. 2000022"]').should('be.visible').and('have.value', '');
+            getContractNoInput().should('be.visible').and('have.value', '');
 
             cy.contains('label', /^Customer Name$/i).should('be.visible');
-            cy.get('input[placeholder="e.g. Somchai"]').should('be.visible').and('have.value', '');
+            getCustomerNameInput().should('be.visible').and('have.value', '');
 
             // Dropdowns defaulting to "All"
             const defaultAllDropdowns = ['Source', 'Legal member'];
@@ -56,11 +74,9 @@ describe('Staff LMS - Legal Page', () => {
             cy.contains('button', /^Clear$/i).should('be.visible').and('be.disabled');
         });
 
-        it('should filter by Contract No and reset using the Clear button', () => {
-            cy.get('tbody tr').first().find('td').eq(1).invoke('text').then((text) => {
-                const contractNo = text.trim();
-
-                cy.get('input[placeholder="e.g. 2000022"]').clear().type(`${contractNo}{enter}`);
+        it('should dynamically select a Contract No from the table, filter by it, and reset using Clear', () => {
+            pickDynamicRow().then(({ contractNo }) => {
+                getContractNoInput().clear().type(`${contractNo}{enter}`);
 
                 // Clear button becomes enabled when filter is modified
                 cy.contains('button', /^Clear$/i).should('not.be.disabled');
@@ -70,13 +86,15 @@ describe('Staff LMS - Legal Page', () => {
 
                 // Click Clear and verify reset
                 cy.contains('button', /^Clear$/i).click();
-                cy.get('input[placeholder="e.g. 2000022"]').should('have.value', '');
+                getContractNoInput().should('have.value', '');
                 cy.contains('button', /^Clear$/i).should('be.disabled');
             });
         });
 
         it('should show empty state "No contracts found" when searching a non-existent Contract No', () => {
-            cy.get('input[placeholder="e.g. 2000022"]').clear().type('999999999{enter}');
+            const nonExistentContractNo = `0000${Date.now()}`;
+
+            getContractNoInput().clear().type(`${nonExistentContractNo}{enter}`);
             cy.contains('No contracts found').should('be.visible');
 
             cy.contains('button', /^Clear$/i).click();
@@ -84,11 +102,18 @@ describe('Staff LMS - Legal Page', () => {
             cy.get('tbody tr').first().find('td').should('have.length', 15);
         });
 
-        it('should allow searching by Customer Name and clearing the filter', () => {
-            cy.get('input[placeholder="e.g. Somchai"]').clear().type('Somchai{enter}');
-            cy.contains('button', /^Clear$/i).should('not.be.disabled').click();
-            cy.get('input[placeholder="e.g. Somchai"]').should('have.value', '');
-            cy.contains('button', /^Clear$/i).should('be.disabled');
+        it('should dynamically select a Customer Name from the table, filter by it, and reset using Clear', () => {
+            pickDynamicRow().then(({ customerName }) => {
+                getCustomerNameInput().clear().type(`${customerName}{enter}`);
+
+                cy.contains('button', /^Clear$/i).should('not.be.disabled');
+                cy.get('tbody tr').should('have.length.greaterThan', 0);
+                cy.get('tbody tr').first().find('td').eq(2).should('contain.text', customerName);
+
+                cy.contains('button', /^Clear$/i).click();
+                getCustomerNameInput().should('have.value', '');
+                cy.contains('button', /^Clear$/i).should('be.disabled');
+            });
         });
 
         it('should switch Case status dropdown between Active and Dismissed and reset via Clear', () => {
@@ -138,19 +163,28 @@ describe('Staff LMS - Legal Page', () => {
             cy.contains('button', /^Clear$/i).click();
         });
 
-        it('should display expected options in the Legal member dropdown and allow selection', () => {
+        it('should display options in the Legal member dropdown and dynamically select a member', () => {
             cy.contains('label', /^Legal member$/i).parent().find('[role="combobox"]').click();
 
             cy.get('ul[role="listbox"]').should('be.visible').within(() => {
                 cy.contains('li[role="option"]', 'All').should('be.visible');
                 cy.contains('li[role="option"]', 'Not assigned').should('be.visible');
-                cy.contains('li[role="option"]', 'Nuwan Shan - 9834').should('be.visible').click();
             });
 
-            cy.contains('label', /^Legal member$/i)
-                .parent()
-                .find('[role="combobox"]')
-                .should('contain.text', 'Nuwan Shan - 9834');
+            // Dynamically select the first assigned staff option (excluding "All" and "Not assigned")
+            cy.get('ul[role="listbox"] li[role="option"]')
+                .not('[data-value=""]')
+                .not('[data-value="none"]')
+                .first()
+                .then(($option) => {
+                    const memberName = $option.text().trim();
+                    cy.wrap($option).click();
+
+                    cy.contains('label', /^Legal member$/i)
+                        .parent()
+                        .find('[role="combobox"]')
+                        .should('contain.text', memberName);
+                });
 
             cy.contains('button', /^Clear$/i).click();
         });
@@ -211,78 +245,78 @@ describe('Staff LMS - Legal Page', () => {
             });
         });
 
-        it('should render row data cells, status/source/assignment chips, and row action icons', () => {
-            cy.get('tbody tr').should('have.length.greaterThan', 0);
+        it('should render row data cells, status/source/assignment chips, and row action icons on a dynamically chosen row', () => {
+            pickDynamicRow().then(({ rowIndex }) => {
+                cy.get('tbody tr').eq(rowIndex).within(() => {
+                    // Col 0: Checkbox
+                    cy.get('td').eq(0).find('input[type="checkbox"]').should('exist');
 
-            cy.get('tbody tr').first().within(() => {
-                // Col 0: Checkbox
-                cy.get('td').eq(0).find('input[type="checkbox"]').should('exist');
+                    // Col 1: Contract No
+                    cy.get('td').eq(1).invoke('text').should('match', /^\d+$/);
 
-                // Col 1: Contract No
-                cy.get('td').eq(1).invoke('text').should('match', /^\d+$/);
+                    // Col 2: Customer
+                    cy.get('td').eq(2).should('not.be.empty');
 
-                // Col 2: Customer
-                cy.get('td').eq(2).should('not.be.empty');
+                    // Col 3: Product
+                    cy.get('td').eq(3).should('not.be.empty');
 
-                // Col 3: Product
-                cy.get('td').eq(3).should('not.be.empty');
+                    // Col 4: LMS Status
+                    cy.get('td').eq(4).should('not.be.empty');
 
-                // Col 4: LMS Status
-                cy.get('td').eq(4).should('not.be.empty');
+                    // Col 9: Overdue days
+                    cy.get('td').eq(9).scrollIntoView().invoke('text').should('match', /\d+/);
 
-                // Col 9: Overdue days
-                cy.get('td').eq(9).scrollIntoView().invoke('text').should('match', /\d+/);
+                    // Col 10: Outstanding amount + currency
+                    cy.get('td').eq(10).scrollIntoView().should('not.be.empty');
 
-                // Col 10: Outstanding amount + currency
-                cy.get('td').eq(10).scrollIntoView().should('not.be.empty');
+                    // Col 11: Source chip
+                    cy.get('td').eq(11).scrollIntoView().find('.MuiChip-root').should('exist');
 
-                // Col 11: Source chip
-                cy.get('td').eq(11).scrollIntoView().find('.MuiChip-root').should('exist');
+                    // Col 12: Legal member chip
+                    cy.get('td').eq(12).scrollIntoView().find('.MuiChip-root').should('exist');
 
-                // Col 12: Legal member chip
-                cy.get('td').eq(12).scrollIntoView().find('.MuiChip-root').should('exist');
+                    // Col 13: Latest legal status chip
+                    cy.get('td').eq(13).scrollIntoView().find('.MuiChip-root').should('exist');
 
-                // Col 13: Latest legal status chip
-                cy.get('td').eq(13).scrollIntoView().find('.MuiChip-root').should('exist');
-
-                // Col 14: Actions (View, Open call form, Add legal action)
-                cy.get('td').eq(14).scrollIntoView().within(() => {
-                    cy.get('button[aria-label="View"]').should('be.visible');
-                    cy.get('button[aria-label="Open call form"]').should('be.visible');
-                    cy.get('button[aria-label="Add legal action"]').should('be.visible');
+                    // Col 14: Actions (View, Open call form, Add legal action)
+                    cy.get('td').eq(14).scrollIntoView().within(() => {
+                        cy.get('button[aria-label="View"]').should('be.visible');
+                        cy.get('button[aria-label="Open call form"]').should('be.visible');
+                        cy.get('button[aria-label="Add legal action"]').should('be.visible');
+                    });
                 });
             });
         });
 
-        it('should navigate to the Call Form for the specific contract when clicking the row "Open call form" button', () => {
-            cy.get('tbody tr').first().find('td').eq(1).invoke('text').then((contractNo) => {
-                const trimmedContract = contractNo.trim();
-
-                cy.get('tbody tr').first().find('button[aria-label="Open call form"]').scrollIntoView().click();
-                cy.url().should('include', `/call-form/${trimmedContract}`);
+        it('should navigate to the Call Form for a dynamically selected contract when clicking its row "Open call form" button', () => {
+            pickDynamicRow().then(({ rowIndex, contractNo }) => {
+                cy.get('tbody tr').eq(rowIndex).find('button[aria-label="Open call form"]').scrollIntoView().click();
+                cy.url().should('include', `/call-form/${contractNo}`);
             });
         });
     });
 
     describe('5. Row Selection & Bulk Action Toolbar States', () => {
-        it('should enable "Assign legal member (1)" and show "Clear selection" when a row is checked', () => {
+        it('should enable "Assign legal member (1)" and show "Clear selection" when a dynamically chosen row is checked', () => {
             // Initial state: 0 selected
             cy.contains('button', 'Clear selection').should('not.exist');
             cy.contains('button', 'Assign legal member (0)').should('be.disabled');
 
-            // Select the first row checkbox
-            cy.get('tbody tr').first().find('td').eq(0).find('input[type="checkbox"]').check({ force: true });
-            cy.get('tbody tr').first().should('have.class', 'Mui-selected');
+            pickDynamicRow().then(({ rowIndex }) => {
+                // Select the dynamically chosen row checkbox
+                cy.get('tbody tr').eq(rowIndex).find('td').eq(0).find('input[type="checkbox"]').check({ force: true });
+                cy.get('tbody tr').eq(rowIndex).should('have.class', 'Mui-selected');
 
-            // Verify bulk action button updates to (1) and Clear selection appears
-            cy.contains('button', 'Clear selection').should('be.visible');
-            cy.contains('button', 'Assign legal member (1)').should('be.visible').and('not.be.disabled');
+                // Verify bulk action button updates to (1) and Clear selection appears
+                cy.contains('button', 'Clear selection').should('be.visible');
+                cy.contains('button', 'Assign legal member (1)').should('be.visible').and('not.be.disabled');
 
-            // Click "Clear selection" and verify reset
-            cy.contains('button', 'Clear selection').click();
-            cy.get('tbody tr').first().should('not.have.class', 'Mui-selected');
-            cy.contains('button', 'Clear selection').should('not.exist');
-            cy.contains('button', 'Assign legal member (0)').should('be.disabled');
+                // Click "Clear selection" and verify reset
+                cy.contains('button', 'Clear selection').click();
+                cy.get('tbody tr').eq(rowIndex).should('not.have.class', 'Mui-selected');
+                cy.contains('button', 'Clear selection').should('not.exist');
+                cy.contains('button', 'Assign legal member (0)').should('be.disabled');
+            });
         });
 
         it('should select and deselect all visible rows using the table header checkbox', () => {
@@ -301,11 +335,9 @@ describe('Staff LMS - Legal Page', () => {
     });
 
     describe('6. "Assign legal member" Modal & Interactions', () => {
-        it('should open the "Assign legal member" modal for a selected contract and verify all components', () => {
-            cy.get('tbody tr').first().find('td').eq(1).invoke('text').then((contractText) => {
-                const contractNo = contractText.trim();
-
-                cy.get('tbody tr').first().find('td').eq(0).find('input[type="checkbox"]').check({ force: true });
+        it('should open the "Assign legal member" modal for a dynamically selected contract and verify all components', () => {
+            pickDynamicRow().then(({ rowIndex, contractNo }) => {
+                cy.get('tbody tr').eq(rowIndex).find('td').eq(0).find('input[type="checkbox"]').check({ force: true });
                 cy.contains('button', 'Assign legal member (1)').click();
 
                 cy.contains('[role="dialog"]', 'Assign legal member').should('be.visible').within(() => {
@@ -313,7 +345,7 @@ describe('Staff LMS - Legal Page', () => {
                     cy.contains('h2', 'Assign legal member').should('be.visible');
                     cy.get('button[aria-label="close"]').should('be.visible');
 
-                    // Selected contracts count & contract chip
+                    // Selected contracts count & dynamic contract chip
                     cy.contains('Selected contracts (1)').should('be.visible');
                     cy.contains('.MuiChip-label', contractNo).should('be.visible');
 
@@ -324,54 +356,56 @@ describe('Staff LMS - Legal Page', () => {
                         .click();
                 });
 
-                // Select an option from the autocomplete dropdown
+                // Dynamically select the first available option from the autocomplete dropdown
                 cy.get('li[role="option"].MuiAutocomplete-option, ul[role="listbox"] li[role="option"]')
                     .should('be.visible')
-                    .and('contain.text', 'Nuwan Shan - 9834')
                     .first()
-                    .click();
+                    .then(($option) => {
+                        const selectedMember = $option.text().trim();
+                        cy.wrap($option).click();
 
-                cy.contains('[role="dialog"]', 'Assign legal member').within(() => {
-                    cy.get('input[placeholder="Search by name or staff no."]')
-                        .should('have.value', 'Nuwan Shan - 9834');
+                        cy.contains('[role="dialog"]', 'Assign legal member').within(() => {
+                            cy.get('input[placeholder="Search by name or staff no."]')
+                                .should('have.value', selectedMember);
 
-                    // Verify "Remove assignment (contract becomes Not assigned)" checkbox
-                    cy.contains('span', 'Remove assignment (contract becomes Not assigned)').should('be.visible');
-                    cy.get('input[type="checkbox"]').check({ force: true }).should('be.checked');
-                    cy.get('input[type="checkbox"]').uncheck({ force: true }).should('not.be.checked');
+                            // Verify "Remove assignment (contract becomes Not assigned)" checkbox
+                            cy.contains('span', 'Remove assignment (contract becomes Not assigned)').should('be.visible');
+                            cy.get('input[type="checkbox"]').check({ force: true }).should('be.checked');
+                            cy.get('input[type="checkbox"]').uncheck({ force: true }).should('not.be.checked');
 
-                    // Verify Cancel & Assign action buttons
-                    cy.contains('button', /^Assign$/i).should('be.visible').and('not.be.disabled');
-                    cy.contains('button', /^Cancel$/i).should('be.visible').click();
-                });
+                            // Verify Cancel & Assign action buttons
+                            cy.contains('button', /^Assign$/i).should('be.visible').and('not.be.disabled');
+                            cy.contains('button', /^Cancel$/i).should('be.visible').click();
+                        });
+                    });
 
                 cy.get('[role="dialog"]').should('not.exist');
             });
         });
 
         it('should close the "Assign legal member" modal using the X icon', () => {
-            cy.get('tbody tr').first().find('td').eq(0).find('input[type="checkbox"]').check({ force: true });
-            cy.contains('button', 'Assign legal member (1)').click();
+            pickDynamicRow().then(({ rowIndex }) => {
+                cy.get('tbody tr').eq(rowIndex).find('td').eq(0).find('input[type="checkbox"]').check({ force: true });
+                cy.contains('button', 'Assign legal member (1)').click();
 
-            cy.contains('[role="dialog"]', 'Assign legal member').should('be.visible');
-            cy.contains('[role="dialog"]', 'Assign legal member').find('button[aria-label="close"]').click();
-            cy.get('[role="dialog"]').should('not.exist');
+                cy.contains('[role="dialog"]', 'Assign legal member').should('be.visible');
+                cy.contains('[role="dialog"]', 'Assign legal member').find('button[aria-label="close"]').click();
+                cy.get('[role="dialog"]').should('not.exist');
+            });
         });
     });
 
     describe('7. "Legal contract details" (View) Modal & Nested Modals', () => {
-        it('should open the "Legal contract details" modal and verify all collapsible cards and sections', () => {
-            cy.get('tbody tr').first().find('td').eq(1).invoke('text').then((contractText) => {
-                const contractNo = contractText.trim();
-
-                cy.get('tbody tr').first().find('button[aria-label="View"]').scrollIntoView().click();
+        it('should open the "Legal contract details" modal for a dynamic contract and verify all collapsible cards and sections', () => {
+            pickDynamicRow().then(({ rowIndex, contractNo }) => {
+                cy.get('tbody tr').eq(rowIndex).find('button[aria-label="View"]').scrollIntoView().click();
 
                 cy.contains('[role="dialog"]', 'Legal contract details').should('be.visible').within(() => {
                     // Modal title & close icon
                     cy.contains('h2', 'Legal contract details').should('be.visible');
                     cy.get('button[aria-label="close"]').should('be.visible');
 
-                    // Card 0: Contract Summary Header Card
+                    // Card 0: Contract Summary Header Card with dynamic Contract No
                     cy.contains(`Contract No: ${contractNo}`).should('be.visible');
                     cy.contains('button', /^Change$/i).should('be.visible');
 
@@ -416,34 +450,35 @@ describe('Staff LMS - Legal Page', () => {
         });
 
         it('should open the "Assign legal member" modal when clicking "Change" inside Legal contract details', () => {
-            cy.get('tbody tr').first().find('button[aria-label="View"]').scrollIntoView().click();
+            pickDynamicRow().then(({ rowIndex, contractNo }) => {
+                cy.get('tbody tr').eq(rowIndex).find('button[aria-label="View"]').scrollIntoView().click();
 
-            cy.contains('[role="dialog"]', 'Legal contract details').should('be.visible').within(() => {
-                cy.contains('button', /^Change$/i).click();
+                cy.contains('[role="dialog"]', 'Legal contract details').should('be.visible').within(() => {
+                    cy.contains('button', /^Change$/i).click();
+                });
+
+                // Verify Assign legal member dialog opens with the dynamic contract chip
+                cy.contains('[role="dialog"]', 'Assign legal member').should('be.visible').within(() => {
+                    cy.contains('h2', 'Assign legal member').should('be.visible');
+                    cy.contains('.MuiChip-label', contractNo).should('be.visible');
+                    cy.contains('button', /^Cancel$/i).click();
+                });
+
+                // Close the underlying Legal contract details dialog
+                cy.contains('[role="dialog"]', 'Legal contract details').find('button[aria-label="close"]').click();
+                cy.get('[role="dialog"]').should('not.exist');
             });
-
-            // Verify Assign legal member dialog opens
-            cy.contains('[role="dialog"]', 'Assign legal member').should('be.visible').within(() => {
-                cy.contains('h2', 'Assign legal member').should('be.visible');
-                cy.contains('button', /^Cancel$/i).click();
-            });
-
-            // Close the underlying Legal contract details dialog
-            cy.contains('[role="dialog"]', 'Legal contract details').find('button[aria-label="close"]').click();
-            cy.get('[role="dialog"]').should('not.exist');
         });
 
-        it('should open and validate the "Dismiss case" modal from inside Legal contract details', () => {
-            cy.get('tbody tr').first().find('td').eq(1).invoke('text').then((contractText) => {
-                const contractNo = contractText.trim();
-
-                cy.get('tbody tr').first().find('button[aria-label="View"]').scrollIntoView().click();
+        it('should open and validate the "Dismiss case" modal for a dynamic contract from inside Legal contract details', () => {
+            pickDynamicRow().then(({ rowIndex, contractNo }) => {
+                cy.get('tbody tr').eq(rowIndex).find('button[aria-label="View"]').scrollIntoView().click();
 
                 cy.contains('[role="dialog"]', 'Legal contract details').should('be.visible').within(() => {
                     cy.contains('button', /^Dismiss case$/i).scrollIntoView().click();
                 });
 
-                // Verify Dismiss case modal opens
+                // Verify Dismiss case modal opens with dynamic contract number in title
                 cy.contains('[role="dialog"]', `Dismiss case - ${contractNo}`).should('be.visible').within(() => {
                     cy.contains('h2', `Dismiss case - ${contractNo}`).should('be.visible');
                     cy.contains('The case moves to the Dismissed list and becomes read only.').should('be.visible');
@@ -466,11 +501,9 @@ describe('Staff LMS - Legal Page', () => {
             });
         });
 
-        it('should open the "Add legal action" modal when clicking "Add legal action" inside Legal contract details', () => {
-            cy.get('tbody tr').first().find('td').eq(1).invoke('text').then((contractText) => {
-                const contractNo = contractText.trim();
-
-                cy.get('tbody tr').first().find('button[aria-label="View"]').scrollIntoView().click();
+        it('should open the "Add legal action" modal for a dynamic contract when clicking "Add legal action" inside Legal contract details', () => {
+            pickDynamicRow().then(({ rowIndex, contractNo }) => {
+                cy.get('tbody tr').eq(rowIndex).find('button[aria-label="View"]').scrollIntoView().click();
 
                 cy.contains('[role="dialog"]', 'Legal contract details').should('be.visible').within(() => {
                     cy.contains('button', /^Add legal action$/i).scrollIntoView().click();
@@ -486,29 +519,30 @@ describe('Staff LMS - Legal Page', () => {
             });
         });
 
-        it('should display "Accept again" button in Legal contract details when viewing a Dismissed case', () => {
+        it('should display "Accept again" button in Legal contract details when viewing a dynamically selected Dismissed case', () => {
             // Switch filter to Dismissed
             cy.contains('label', /^Case status$/i).parent().find('[role="combobox"]').click();
             cy.get('ul[role="listbox"]').contains('li[role="option"]', 'Dismissed').click();
 
-            cy.get('tbody tr').first().find('button[aria-label="View"]').scrollIntoView().click();
+            pickDynamicRow().then(({ rowIndex, contractNo }) => {
+                cy.get('tbody tr').eq(rowIndex).find('button[aria-label="View"]').scrollIntoView().click();
 
-            cy.contains('[role="dialog"]', 'Legal contract details').should('be.visible').within(() => {
-                cy.contains('h2', 'Legal contract details').should('be.visible');
-                cy.contains('button', /^Accept again$/i).scrollIntoView().should('be.visible');
-                cy.get('button[aria-label="close"]').click();
+                cy.contains('[role="dialog"]', 'Legal contract details').should('be.visible').within(() => {
+                    cy.contains('h2', 'Legal contract details').should('be.visible');
+                    cy.contains(`Contract No: ${contractNo}`).should('be.visible');
+                    cy.contains('button', /^Accept again$/i).scrollIntoView().should('be.visible');
+                    cy.get('button[aria-label="close"]').click();
+                });
+
+                cy.get('[role="dialog"]').should('not.exist');
             });
-
-            cy.get('[role="dialog"]').should('not.exist');
         });
     });
 
     describe('8. "Add legal action" Modal, Form Validation & Document Upload', () => {
-        it('should open the "Add legal action" modal from the row action button and validate required fields', () => {
-            cy.get('tbody tr').first().find('td').eq(1).invoke('text').then((contractText) => {
-                const contractNo = contractText.trim();
-
-                cy.get('tbody tr').first().find('button[aria-label="Add legal action"]').scrollIntoView().click();
+        it('should open the "Add legal action" modal for a dynamically selected row and validate required fields', () => {
+            pickDynamicRow().then(({ rowIndex, contractNo }) => {
+                cy.get('tbody tr').eq(rowIndex).find('button[aria-label="Add legal action"]').scrollIntoView().click();
 
                 cy.contains('[role="dialog"]', `Add legal action - ${contractNo}`).should('be.visible').within(() => {
                     // Verify Modal Title & Close button
@@ -544,94 +578,96 @@ describe('Staff LMS - Legal Page', () => {
             });
         });
 
-        it('should interact with all form fields, dropdowns, date inputs, and document upload in "Add legal action" modal', () => {
-            cy.get('tbody tr').first().find('button[aria-label="Add legal action"]').scrollIntoView().click();
+        it('should interact with all form fields, dropdowns, date inputs, and document upload in "Add legal action" modal for a dynamic row', () => {
+            pickDynamicRow().then(({ rowIndex, contractNo }) => {
+                cy.get('tbody tr').eq(rowIndex).find('button[aria-label="Add legal action"]').scrollIntoView().click();
 
-            cy.contains('[role="dialog"]', 'Add legal action').should('be.visible').within(() => {
-                // 1. Status * dropdown
-                cy.get('[role="combobox"]').eq(0).click();
-            });
-
-            const statusOptions = [
-                'Police',
-                'Not Filed',
-                'Village Master',
-                'Prosecutor',
-                '1st Court',
-                '2nd Court',
-                '3rd Court',
-                'Judgment Fixed'
-            ];
-            cy.get('ul[role="listbox"]').should('be.visible').within(() => {
-                statusOptions.forEach((opt) => {
-                    cy.contains('li[role="option"]', opt).should('exist');
+                cy.contains('[role="dialog"]', `Add legal action - ${contractNo}`).should('be.visible').within(() => {
+                    // 1. Status * dropdown
+                    cy.get('[role="combobox"]').eq(0).click();
                 });
-                cy.contains('li[role="option"]', 'Police').click();
+
+                const statusOptions = [
+                    'Police',
+                    'Not Filed',
+                    'Village Master',
+                    'Prosecutor',
+                    '1st Court',
+                    '2nd Court',
+                    '3rd Court',
+                    'Judgment Fixed'
+                ];
+                cy.get('ul[role="listbox"]').should('be.visible').within(() => {
+                    statusOptions.forEach((opt) => {
+                        cy.contains('li[role="option"]', opt).should('exist');
+                    });
+                    cy.contains('li[role="option"]', 'Police').click();
+                });
+
+                // 2. Payment confirmation issued? * dropdown
+                cy.contains('[role="dialog"]', `Add legal action - ${contractNo}`).within(() => {
+                    cy.get('[role="combobox"]').eq(1).click();
+                });
+                cy.get('ul[role="listbox"]').should('be.visible').within(() => {
+                    cy.contains('li[role="option"]', 'Yes').should('be.visible');
+                    cy.contains('li[role="option"]', 'No').should('be.visible').click();
+                });
+
+                cy.contains('[role="dialog"]', `Add legal action - ${contractNo}`).within(() => {
+                    // 3. Legal action note *
+                    cy.get('textarea[placeholder="Enter legal action note"]:not([aria-hidden="true"])')
+                        .should('be.visible')
+                        .type('Automated Cypress legal action note');
+
+                    // 4. Court / Office *
+                    cy.get('input[placeholder="Enter court or office name…"]')
+                        .should('be.visible')
+                        .type('Vientiane People Court');
+
+                    // 5. Officer name *
+                    cy.get('input[placeholder="Enter officer name…"]')
+                        .should('be.visible')
+                        .type('Officer Somchai');
+
+                    // 6. Claimed amount *
+                    cy.get('input[placeholder="Enter claimed amount…"]')
+                        .should('be.visible')
+                        .type('150000');
+
+                    // 7. Trading Currency * dropdown
+                    cy.get('[role="combobox"]').eq(2).click();
+                });
+
+                cy.get('ul[role="listbox"]').should('be.visible').within(() => {
+                    cy.contains('li[role="option"]', 'USD').should('be.visible');
+                    cy.contains('li[role="option"]', 'THB').should('be.visible');
+                    cy.contains('li[role="option"]', 'LAK').should('be.visible').click();
+                });
+
+                cy.contains('[role="dialog"]', `Add legal action - ${contractNo}`).within(() => {
+                    // 8, 9, 10. Date inputs (Application date, Next hearing date, Judgment date)
+                    cy.get('input[type="date"]').eq(0).scrollIntoView().type('2026-05-01');
+                    cy.get('input[type="date"]').eq(1).scrollIntoView().type('2026-06-01');
+                    cy.get('input[type="date"]').eq(2).scrollIntoView().type('2026-07-01');
+
+                    // 11. Document Upload *
+                    cy.contains('Document Upload').scrollIntoView().should('be.visible');
+                    cy.contains('No file selected').should('be.visible');
+
+                    cy.get('input[type="file"]').last().selectFile({
+                        contents: Cypress.Buffer.from('mock pdf data content'),
+                        fileName: 'court_order.pdf',
+                        mimeType: 'application/pdf'
+                    }, { force: true });
+
+                    cy.contains('court_order.pdf').should('exist');
+
+                    // Close via Cancel button to avoid mutating live data
+                    cy.contains('button', /^Cancel$/i).scrollIntoView().click();
+                });
+
+                cy.get('[role="dialog"]').should('not.exist');
             });
-
-            // 2. Payment confirmation issued? * dropdown
-            cy.contains('[role="dialog"]', 'Add legal action').within(() => {
-                cy.get('[role="combobox"]').eq(1).click();
-            });
-            cy.get('ul[role="listbox"]').should('be.visible').within(() => {
-                cy.contains('li[role="option"]', 'Yes').should('be.visible');
-                cy.contains('li[role="option"]', 'No').should('be.visible').click();
-            });
-
-            cy.contains('[role="dialog"]', 'Add legal action').within(() => {
-                // 3. Legal action note *
-                cy.get('textarea[placeholder="Enter legal action note"]:not([aria-hidden="true"])')
-                    .should('be.visible')
-                    .type('Automated Cypress legal action note');
-
-                // 4. Court / Office *
-                cy.get('input[placeholder="Enter court or office name…"]')
-                    .should('be.visible')
-                    .type('Vientiane People Court');
-
-                // 5. Officer name *
-                cy.get('input[placeholder="Enter officer name…"]')
-                    .should('be.visible')
-                    .type('Officer Somchai');
-
-                // 6. Claimed amount *
-                cy.get('input[placeholder="Enter claimed amount…"]')
-                    .should('be.visible')
-                    .type('150000');
-
-                // 7. Trading Currency * dropdown
-                cy.get('[role="combobox"]').eq(2).click();
-            });
-
-            cy.get('ul[role="listbox"]').should('be.visible').within(() => {
-                cy.contains('li[role="option"]', 'USD').should('be.visible');
-                cy.contains('li[role="option"]', 'THB').should('be.visible');
-                cy.contains('li[role="option"]', 'LAK').should('be.visible').click();
-            });
-
-            cy.contains('[role="dialog"]', 'Add legal action').within(() => {
-                // 8, 9, 10. Date inputs (Application date, Next hearing date, Judgment date)
-                cy.get('input[type="date"]').eq(0).scrollIntoView().type('2026-05-01');
-                cy.get('input[type="date"]').eq(1).scrollIntoView().type('2026-06-01');
-                cy.get('input[type="date"]').eq(2).scrollIntoView().type('2026-07-01');
-
-                // 11. Document Upload *
-                cy.contains('Document Upload').scrollIntoView().should('be.visible');
-                cy.contains('No file selected').should('be.visible');
-
-                cy.get('input[type="file"]').last().selectFile({
-                    contents: Cypress.Buffer.from('mock pdf data content'),
-                    fileName: 'court_order.pdf',
-                    mimeType: 'application/pdf'
-                }, { force: true });
-
-                cy.contains('court_order.pdf').should('exist');
-
-                // Close via Cancel button to avoid mutating live data
-                cy.contains('button', /^Cancel$/i).scrollIntoView().click();
-            });
-
-            cy.get('[role="dialog"]').should('not.exist');
         });
     });
 

@@ -2,6 +2,20 @@
 
 describe('Staff LMS - Dashboard Page', () => {
 
+  // Helper to locate the main Team / Department filter dropdown on the Dashboard
+  const getTeamDropdown = () =>
+    cy.contains('label', /^Team$/i)
+      .parent()
+      .find('.MuiSelect-select, [role="combobox"]')
+      .first();
+
+  // Helper to locate any filter dropdown by its label text
+  const getFilterDropdown = (labelRegex) =>
+    cy.contains('label', labelRegex)
+      .parent()
+      .find('.MuiSelect-select, [role="combobox"]')
+      .first();
+
   beforeEach(() => {
     cy.login('eranda.h@lalco.la', 'Eranda.h@1');
     cy.visit('http://54.255.136.172/#/');
@@ -10,21 +24,32 @@ describe('Staff LMS - Dashboard Page', () => {
   context('Navigation & Header UI', () => {
     it('should display all main sidebar navigation items', () => {
       const menuItems = [
-        'Dashboard', 'Customers', 'Guarantors', 'Contract Assigning',
-        'Collection and Legal Team', 'Tasks', 'Customer Visit List',
-        'Follow Ups', 'Sales', 'Notes', 'Loans', 'Payments',
-        'Legal', 'Special Cases', 'Village Master', 'Staff',
-        'Collaterals', 'API Test'
+        'Dashboard', 'Customers', 'Guarantors', 'Sales', 'Collateral',
+        'Contract Assigning', 'Loans', 'Payments', 'Collection and Legal Team',
+        'Legal Candidates', 'Legal', 'Village Master', 'Tasks',
+        'Customer Visit List', 'Follow Ups', 'Call History', 'Notes',
+        'LMS Data Sync', 'Profile', 'Staff', 'Organization Structure'
       ];
 
       menuItems.forEach(item => {
-        cy.get('aside, nav').contains(item).should('be.visible');
+        cy.get('aside, nav').contains(item).scrollIntoView().should('be.visible');
+      });
+    });
+
+    it('should display sidebar section subheaders', () => {
+      const sections = ['Overview', 'General', 'Operations', 'Account'];
+
+      sections.forEach(section => {
+        cy.get('aside, nav').contains( new RegExp(`^\\s*${section}\\s*$`, 'i'))
+          .scrollIntoView()
+          .should('be.visible');
       });
     });
 
     it('should display the header elements', () => {
       cy.get('header').contains('Dashboard').should('be.visible');
       cy.contains('EN').should('be.visible');
+      cy.get('header').find('button, svg').should('have.length.greaterThan', 0);
     });
   });
 
@@ -48,16 +73,39 @@ describe('Staff LMS - Dashboard Page', () => {
   context('Task Metrics Widgets', () => {
     it('should render Today Task metrics accurately', () => {
       cy.contains('Today Task').should('be.visible');
-      cy.contains('Today Task').parents().contains('Total').should('be.visible');
+      cy.contains('Today Task').parents('.MuiCard-root').first().within(() => {
+        cy.contains('Total').should('be.visible');
 
-      cy.contains('Calls').parent().parent().within(() => {
-        cy.contains(/Done/i).should('be.visible');
-        cy.contains('Pending').should('be.visible');
+        cy.contains('Calls').parent().parent().within(() => {
+          cy.contains(/\d+%/).should('be.visible');
+          cy.contains(/Done/i).should('be.visible');
+          cy.contains('Pending').should('be.visible');
+        });
+
+        cy.contains('Visits').parent().parent().within(() => {
+          cy.contains(/\d+%/).should('be.visible');
+          cy.contains(/Done/i).should('be.visible');
+          cy.contains('Pending').should('be.visible');
+        });
       });
+    });
 
-      cy.contains('Visits').parent().parent().within(() => {
-        cy.contains(/Done/i).should('be.visible');
-        cy.contains('Pending').should('be.visible');
+    it('should render This Month Task metrics accurately including Calls and Visits breakdowns', () => {
+      cy.contains('This Month Task').should('be.visible');
+      cy.contains('This Month Task').parents('.MuiCard-root').first().within(() => {
+        cy.contains('Total').should('be.visible');
+
+        cy.contains('Calls').parent().parent().within(() => {
+          cy.contains(/\d+%/).should('be.visible');
+          cy.contains(/Done/i).should('be.visible');
+          cy.contains('Pending').should('be.visible');
+        });
+
+        cy.contains('Visits').parent().parent().within(() => {
+          cy.contains(/\d+%/).should('be.visible');
+          cy.contains(/Done/i).should('be.visible');
+          cy.contains('Pending').should('be.visible');
+        });
       });
     });
 
@@ -74,20 +122,16 @@ describe('Staff LMS - Dashboard Page', () => {
     });
 
     it('should render the correct dynamic filter fields when "Collection" is selected', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
 
       const collectionFilterLabels = [
-        'DEPARTMENT',
-        'G DEPT',
-        'COLLECTION UNIT',
-        'COLLECTION TL',
-        'COLLECTION'
+        '^\\s*Team\\s*$',
+        '^\\s*G Dept\\s*$',
+        '^\\s*Collection Unit\\s*$',
+        '^\\s*Collection TL\\s*$',
+        '^\\s*Collection\\s*$'
       ];
 
       collectionFilterLabels.forEach(label => {
@@ -98,36 +142,33 @@ describe('Staff LMS - Dashboard Page', () => {
       cy.contains('Select Unit').should('be.visible');
       cy.contains('Select TL').should('be.visible');
       cy.contains('Select Collection').should('be.visible');
+
+      cy.contains('button', 'Clear').click();
     });
 
     it('should render the correct dynamic filter fields when "Sales" is selected', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Sales').click();
 
       const salesFilterLabels = [
-        'DEPARTMENT',
-        'G DEPARTMENT',
-        'MINI UNIT',
-        'BRANCH'
+        '^\\s*Team\\s*$',
+        '^\\s*G Department\\s*$',
+        '^\\s*Department\\s*$',
+        '^\\s*Branch\\s*$',
+        '^\\s*Unit\\s*$',
+        '^\\s*Mini Unit\\s*$'
       ];
 
       salesFilterLabels.forEach(label => {
         cy.contains('label', new RegExp(label, 'i')).should('be.visible');
       });
+
       cy.contains('button', 'Clear').click();
     });
 
     it('should clear the selected department and reset dynamic filters on Clear', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
 
@@ -135,23 +176,15 @@ describe('Staff LMS - Dashboard Page', () => {
 
       cy.contains('button', 'Clear').click();
 
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .should('not.contain.text', 'Collection');
-    });
-
-    it('should render This Month Task metrics accurately', () => {
-      cy.contains('This Month Task').should('be.visible');
-      cy.contains('This Month Task').parents().contains('Total').should('be.visible');
+      getTeamDropdown().should('not.contain.text', 'Collection');
+      getTeamDropdown().should('contain.text', 'All Departments');
     });
   });
 
   context('Team Dashboard Overview', () => {
     it('should display the department filter and default to All Departments', () => {
       cy.contains('Team Dashboard Overview').should('be.visible');
-      cy.contains(/DEPARTMENT/i).should('be.visible');
+      cy.contains('label', /^Team$/i).should('be.visible');
       cy.contains('All Departments').should('be.visible');
     });
 
@@ -159,6 +192,7 @@ describe('Staff LMS - Dashboard Page', () => {
       cy.contains('Task Status Breakdown').should('be.visible');
       cy.contains('Active Cases').should('be.visible');
       cy.contains(/Overdue: \d+/).should('be.visible');
+      cy.contains(/Done Today: \d+/).should('be.visible');
     });
 
     it('should render the Task Aging Breakdown chart and labels', () => {
@@ -174,20 +208,14 @@ describe('Staff LMS - Dashboard Page', () => {
 
     it('should display a default selected value in the Department dropdown on page load TC-001', () => {
       cy.contains('Team Dashboard Overview').should('be.visible');
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
+      getTeamDropdown()
         .invoke('text')
-        .should('not.be.empty');
+        .should('not.be.empty')
+        .and('include', 'All Departments');
     });
 
     it('should open the Department dropdown and list All Departments, Sales, and Collection TC-002', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().within(() => {
         cy.contains('All Departments').should('be.visible');
@@ -199,45 +227,25 @@ describe('Staff LMS - Dashboard Page', () => {
     });
 
     it('should update the Department field to Sales when Sales is selected TC-003', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Sales').click();
 
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .should('contain.text', 'Sales');
+      getTeamDropdown().should('contain.text', 'Sales');
 
       cy.contains('button', 'Clear').click();
     });
 
     it('should show All Departments option and display unfiltered data when selected TC-012', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('All Departments').click();
 
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .should('contain.text', 'All Departments');
+      getTeamDropdown().should('contain.text', 'All Departments');
     });
 
     it('should show dashboard charts when only the Department filter is applied TC-017', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
 
@@ -250,11 +258,7 @@ describe('Staff LMS - Dashboard Page', () => {
     // ── G Department Filter ────────────────────────────────────────────────
 
     it('should show Select G Dept placeholder after selecting Collection department TC-005', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
       cy.contains('Select G Dept').should('be.visible');
@@ -263,11 +267,7 @@ describe('Staff LMS - Dashboard Page', () => {
     });
 
     it('should populate G Dept dropdown with options after selecting Sales department TC-004', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Sales').click();
 
@@ -284,11 +284,7 @@ describe('Staff LMS - Dashboard Page', () => {
     // ── Dependent Filter Cascade ───────────────────────────────────────────
 
     it('should display correct placeholder texts for all filter dropdowns after selecting Collection TC-018', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
 
@@ -301,59 +297,45 @@ describe('Staff LMS - Dashboard Page', () => {
     });
 
     it('should reset downstream dropdowns when Department selection is changed TC-011', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
       cy.contains(/COLLECTION UNIT/i).should('be.visible');
 
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Sales').click();
 
       cy.contains('Select G Dept').should('be.visible');
+      cy.contains(/COLLECTION UNIT/i).should('not.exist');
       cy.contains('button', 'Clear').click();
     });
 
     // ── Clear Filter Functionality ─────────────────────────────────────────
 
+    it('should have the Clear button disabled by default when All Departments is selected', () => {
+      getTeamDropdown().should('contain.text', 'All Departments');
+      cy.contains('button', 'Clear').should('be.visible').and('be.disabled');
+    });
+
     it('should reset all filter dropdowns to default state when Clear is clicked TC-008', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
       cy.contains(/COLLECTION UNIT/i).should('be.visible');
 
-      cy.contains('button', 'Clear').click();
+      cy.contains('button', 'Clear').should('not.be.disabled').click();
 
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .should('not.contain.text', 'Collection');
-
+      getTeamDropdown().should('not.contain.text', 'Collection');
       cy.contains('All Departments').should('be.visible');
+      cy.contains('button', 'Clear').should('be.disabled');
     });
 
-    it('should not cause errors when Clear is clicked with no filters applied TC-015', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+    it('should not cause errors when Clear is clicked after applying a filter TC-015', () => {
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
-      cy.contains('button', 'Clear').should('be.visible').click();
+      cy.contains('button', 'Clear').should('be.visible').and('not.be.disabled').click();
 
       cy.contains('Team Dashboard Overview').should('be.visible');
       cy.contains('All Departments').should('be.visible');
@@ -362,15 +344,12 @@ describe('Staff LMS - Dashboard Page', () => {
     // ── Filter UI & Layout ─────────────────────────────────────────────────
 
     it('should display all filter labels and the Clear button in the filter section TC-013', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
 
-      cy.contains(/DEPARTMENT/i).should('be.visible');
+      cy.contains('label', /^Team$/i).should('be.visible');
+      cy.contains('label', /^G Dept$/i).should('be.visible');
       cy.contains('Team Dashboard Overview').should('be.visible');
       cy.contains('button', 'Clear').should('be.visible');
 
@@ -378,15 +357,11 @@ describe('Staff LMS - Dashboard Page', () => {
     });
 
     it('should close an open dropdown when clicking outside of it TC-021', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().should('be.visible');
 
-      cy.get('body').click(0, 0);
+      cy.get('.MuiBackdrop-root').last().click({ force: true });
 
       cy.get('[role="listbox"]').should('not.exist');
     });
@@ -394,11 +369,7 @@ describe('Staff LMS - Dashboard Page', () => {
     // ── Filter Combination & Interaction ──────────────────────────────────
 
     it('should apply Collection filter and show updated dashboard charts TC-010', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
 
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
 
@@ -409,21 +380,15 @@ describe('Staff LMS - Dashboard Page', () => {
     });
 
     it('should remain functional after rapid Department filter changes TC-023', () => {
-      const deptDropdown = () =>
-        cy.contains('Team Dashboard Overview')
-          .parent()
-          .find('.MuiSelect-select, [role="combobox"]')
-          .first();
-
-      deptDropdown().click();
+      getTeamDropdown().click();
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Sales').click();
       cy.contains('button', 'Clear').click();
 
-      deptDropdown().click();
+      getTeamDropdown().click();
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
       cy.contains('button', 'Clear').click();
 
-      deptDropdown().click();
+      getTeamDropdown().click();
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('All Departments').click();
 
       cy.contains('Team Dashboard Overview').should('be.visible');
@@ -434,11 +399,7 @@ describe('Staff LMS - Dashboard Page', () => {
 
     it('should allow selecting a G Dept option under Collection department', () => {
       // Collection → G Dept: KHOUN
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
 
       cy.contains('Select G Dept').click();
@@ -451,11 +412,7 @@ describe('Staff LMS - Dashboard Page', () => {
 
     it('should allow selecting a Collection Unit option after G Dept is selected', () => {
       // Collection → G Dept: KHOUN → Collection Unit: PAE
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
 
       cy.contains('Select G Dept').click();
@@ -471,11 +428,7 @@ describe('Staff LMS - Dashboard Page', () => {
 
     it('should allow selecting a Collection TL option after Collection Unit is selected', () => {
       // Collection → G Dept: KHOUN → Unit: PAE → TL: JO
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
 
       cy.contains('Select G Dept').click();
@@ -494,11 +447,7 @@ describe('Staff LMS - Dashboard Page', () => {
 
     it('should allow selecting a Collection option after all upstream filters are set', () => {
       // Full Collection chain: Collection → KHOUN → PAE → JO → Collection: JO
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Collection').click();
 
       cy.contains('Select G Dept').click();
@@ -521,11 +470,7 @@ describe('Staff LMS - Dashboard Page', () => {
     // ── Sales Sub-filter Selection ─────────────────────────────────────────
 
     it('should show G Department, Department, Branch, Unit, Mini Unit placeholders when Sales is selected', () => {
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      getTeamDropdown().click();
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Sales').click();
 
       cy.contains('Select G Dept').should('be.visible');
@@ -538,39 +483,51 @@ describe('Staff LMS - Dashboard Page', () => {
     });
 
     it('should allow selecting a G Department option under Sales department', () => {
-      // Sales → G Department: NO
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      // Sales → G Department: TAY
+      getTeamDropdown().click();
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Sales').click();
 
       cy.contains('Select G Dept').click();
       cy.get('[role="listbox"], .MuiPopover-root').last().should('be.visible')
-        .contains('NO').click();
+        .contains('TAY').click();
 
-      cy.contains('NO').should('be.visible');
+      cy.contains('TAY').should('be.visible');
       cy.contains('button', 'Clear').click();
     });
 
     it('should allow selecting a Department option under Sales after G Department is set', () => {
-      // Sales → G Department: NO → Department: SIN-F
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
-        .click();
+      // Sales → G Department: TAY → Department: MIK
+      getTeamDropdown().click();
       cy.get('[role="listbox"], .MuiPopover-root').last().contains('Sales').click();
 
       cy.contains('Select G Dept').click();
-      cy.get('[role="listbox"], .MuiPopover-root').last().contains('NO').click();
+      cy.get('[role="listbox"], .MuiPopover-root').last().contains('TAY').click();
 
       cy.contains('Select Dept').click();
       cy.get('[role="listbox"], .MuiPopover-root').last().should('be.visible')
-        .contains('SIN-F').click();
+        .contains('MIK').click();
 
-      cy.contains('SIN-F').should('be.visible');
+      cy.contains('MIK').should('be.visible');
+      cy.contains('button', 'Clear').click();
+    });
+
+    it('should allow selecting a Branch option under Sales after Department is set', () => {
+      // Sales → G Department: TAY → Department: MIK → Branch: Attapue
+      getTeamDropdown().click();
+      cy.get('[role="listbox"], .MuiPopover-root').last().contains('Sales').click();
+
+      cy.contains('Select G Dept').click();
+      cy.get('[role="listbox"], .MuiPopover-root').last().contains('TAY').click();
+
+      cy.contains('Select Dept').click();
+      cy.get('[role="listbox"], .MuiPopover-root').last().contains('MIK').click();
+
+      getFilterDropdown(/^Branch$/i).click();
+      cy.get('[role="listbox"], .MuiPopover-root').last().should('be.visible')
+        .contains('Attapue').click();
+
+      cy.contains('Attapue').should('be.visible');
+      cy.contains('Task Status Breakdown').should('be.visible');
       cy.contains('button', 'Clear').click();
     });
 
@@ -578,11 +535,8 @@ describe('Staff LMS - Dashboard Page', () => {
 
     it('should load the filter section without errors after page load TC-025', () => {
       cy.contains('Team Dashboard Overview').should('be.visible');
-      cy.contains(/DEPARTMENT/i).should('be.visible');
-      cy.contains('Team Dashboard Overview')
-        .parent()
-        .find('.MuiSelect-select, [role="combobox"]')
-        .first()
+      cy.contains('label', /^Team$/i).should('be.visible');
+      getTeamDropdown()
         .should('be.visible')
         .click();
 

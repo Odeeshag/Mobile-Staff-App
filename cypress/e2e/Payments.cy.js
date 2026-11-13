@@ -1,348 +1,445 @@
 /// <reference types="cypress" />
 
+/**
+ * =============================================================================
+ * Test Suite: Staff LMS - Payments Page
+ * URL: http://54.255.136.172/#/payments
+ *
+ * Scope:
+ *  1. Authentication & Route Guarding
+ *  2. Top Navigation Bar & Sidebar Components
+ *  3. Search & Filter Bar (Contract No, LMS Collection ID, Customer Name, Currency)
+ *  4. Global and Field-Level Clear Controls
+ *  5. Data Table Structure, Columns, Cell Formats, and Row Status Chips
+ *  6. Empty State & Non-Existent Search Handling
+ *  7. Payment Details Modal Dialog (Lifecycle, Data Cards, Document Preview, Close)
+ *  8. Pagination (Next, Previous, Numbered Page navigation)
+ *  9. Network & Error Handling (Server 500 graceful handling)
+ * =============================================================================
+ */
+
+const PAGE_URL = 'http://54.255.136.172/#/payments';
+const API_PATH = '**/api/captures*';
+const EMPTY_TEXT = 'No payment captures found';
+const PAGE_SIZE = 11;
+
+const COLUMNS = [
+    'LMS Collection ID',
+    'Contract No',
+    'Customer',
+    'Amount',
+    'Currency',
+    'Paid At',
+    'Status',
+    'Actions'
+];
+
+const COL = COLUMNS.reduce((acc, name, i) => ({ ...acc, [name]: i }), {});
+
+const CURRENCIES = ['All', 'USD', 'THB', 'LAK'];
+
+// =============================================================================
+// Selectors & Helper Functions
+// =============================================================================
+
+const exact = (text) => new RegExp(`^\\s*${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`);
+
+// Filter Inputs
+const contractNoInput = () => cy.get('input[placeholder="e.g. 2000022"]');
+const clearContractNoBtn = () => cy.get('button[aria-label="Clear Contract No"]');
+const lmsCollectionIdInput = () => cy.get('input[placeholder="e.g. 1805424"]');
+const clearLmsCollectionIdBtn = () => cy.get('button[aria-label="Clear LMS Collection ID"]');
+const customerNameInput = () => cy.get('input[placeholder="e.g. Somchai"]');
+const clearCustomerNameBtn = () => cy.get('button[aria-label="Clear Customer Name"]');
+const currencySelect = () => cy.get('.MuiSelect-select, [role="combobox"]');
+const globalClearBtn = () => cy.contains('button', exact('Clear'));
+
+// Table Selectors
+const table = () => cy.get('table.MuiTable-root');
+const tableHeaders = () => cy.get('thead th');
+const tableRows = () => cy.get('tbody tr');
+const viewButton = (rowIndex = 0) =>
+    tableRows().eq(rowIndex).find('button[aria-label="View"], [data-testid="VisibilityIcon"]').first();
+
+// Dialog / Modal Selectors
+const dialog = () => cy.get('[role="dialog"]');
+const dialogCloseBtn = () =>
+    cy.get('[role="dialog"] button[aria-label="close"], [role="dialog"] [data-testid="CloseIcon"]').first();
+
+// Pagination Selectors
+const prevButton = () => cy.contains('button', exact('Previous'));
+const nextButton = () => cy.contains('button', exact('Next'));
+const pageButton = (num) => cy.contains('button', exact(String(num)));
+
+// Helper: choose dropdown option in MUI listbox
+const selectCurrencyOption = (currencyText) => {
+    currencySelect().click();
+    cy.get('ul[role="listbox"]').should('be.visible')
+        .contains('li[role="option"]', exact(currencyText)).click();
+    cy.get('ul[role="listbox"]').should('not.exist');
+};
+
 describe('Staff LMS - Payments Page', () => {
 
     beforeEach(() => {
-        // Intercept API calls to wait for table data to load/filter
-        // Adjust the endpoint pattern based on your actual network requests
-        cy.intercept('GET', '**/api/*captures*').as('getPayments');
-        cy.intercept('POST', '**/api/*captures*').as('addPayment');
+        cy.intercept('GET', API_PATH).as('getPayments');
 
         cy.login('eranda.h@lalco.la', 'Eranda.h@1');
+        cy.visit(PAGE_URL);
 
-        cy.visit('http://54.255.136.172/#/payments'); // Inferred URL
+        cy.wait('@getPayments', { timeout: 30000 });
+        tableRows().should('have.length.greaterThan', 0);
     });
 
-    describe('UI Rendering & Initialization', () => {
-        it('should navigate to the page and display the correct title', () => {
-            cy.contains('.MuiTypography-root, h1, h2, h3', /^\s*Payments\s*$/i).should('be.visible');
+    // =========================================================================
+    // 1. Authentication & Route Guarding
+    // =========================================================================
+    describe('1. Authentication & Route Guarding', () => {
+        it('should redirect unauthenticated users to the login page', () => {
+            cy.clearLocalStorage();
+            cy.clearCookies();
+            cy.visit(PAGE_URL);
+            cy.url().should('include', '#/login');
+            cy.get('input[name="email"], input#email').should('be.visible');
+            cy.get('input[type="password"]').should('be.visible');
         });
 
-        it('should render the search input and Add Payment button', () => {
-            cy.get('input[placeholder*="Search by contract number"]').should('be.visible');
-            cy.contains('button, a', /Add Payment/i).should('be.visible');
-        });
-
-        it('should render the data table with all expected columns', () => {
-            const columns = [
-                'LMS Collection ID',
-                'Contract No',
-                'Customer',
-                'Amount',
-                'Currency',
-                'Paid At',
-                'Actions'
-            ];
-
-            columns.forEach((col) => {
-                // Using 'exist' to avoid sticky header scroll conflicts
-                cy.get('thead th')
-                    .contains(new RegExp(`^\\s*${col}\\s*$`, 'i'))
-                    .should('exist');
-            });
+        it('should navigate to the Payments page when properly authenticated', () => {
+            cy.url().should('include', '#/payments');
+            cy.contains('.MuiTypography-root, h1, h2, h6', exact('Payments')).should('be.visible');
         });
     });
 
-    describe('Search Functionality', () => {
-        it('should filter the table when searching by Contract Number', () => {
-            const searchInput = 'input[placeholder*="Search by contract number"]';
-            const testContractNo = '2049673'; // From the first screenshot
+    // =========================================================================
+    // 2. Navigation & Layout Components
+    // =========================================================================
+    describe('2. Navigation & Layout Components', () => {
+        it('should render the top navigation bar with page title, theme toggle, and notifications', () => {
+            cy.get('header.MuiAppBar-root').within(() => {
+                cy.contains('.MuiTypography-root', exact('Payments')).should('be.visible');
+                cy.get('button[aria-label="Notifications"]').should('exist');
+                cy.get('button[aria-label="Dark Mode"], button[aria-label="Light Mode"]').should('exist');
+                cy.get('[role="switch"][aria-label*="Switch language"]').should('exist');
+            });
+        });
 
-            // Type the contract number and press Enter
-            cy.get(searchInput).clear().type(`${testContractNo}{enter}`);
+        it('should render the sidebar with brand logo, app title, and active Payments navigation link', () => {
+            cy.get('nav .MuiDrawer-paper').should('be.visible').within(() => {
+                cy.get('img[alt="LALCO logo"]').should('be.visible');
+                cy.contains('Staff LMS').should('be.visible');
+                cy.get('button[aria-label="Collapse sidebar"]').should('be.visible');
 
-            // Wait for the backend response
-            cy.wait('@getPayments');
+                // Active navigation item must highlight "Payments"
+                cy.get('.MuiListItemButton-root.Mui-selected')
+                    .contains('Payments')
+                    .scrollIntoView()
+                    .should('be.visible');
 
-            // Verify the table filtered correctly
-            cy.get('tbody tr').should('have.length.greaterThan', 0);
-
-            // The Contract No is in the second column (index 1)
-            cy.get('tbody tr').first().find('td').eq(1).should('contain.text', testContractNo);
-
-            // Cleanup: clear the search to reset the state
-            cy.get(searchInput).clear().type('{enter}');
-            cy.wait('@getPayments');
+                // User profile footer info
+                cy.contains('Harshana Eranda').should('be.visible');
+                cy.contains('eranda.h@lalco.la').should('be.visible');
+                cy.get('button[aria-label="Logout"]').should('be.visible');
+            });
         });
     });
 
-    describe('Global Actions - Add Payment Modal', () => {
-        it('should open the Add Payment modal and render all form fields', () => {
-            // Click the Add Payment button
-            cy.contains('button, a', /Add Payment/i).click();
+    // =========================================================================
+    // 3. Search & Filter Bar Components
+    // =========================================================================
+    describe('3. Search & Filter Bar Components', () => {
+        it('should render all filter inputs in their default empty states', () => {
+            contractNoInput().should('be.visible').and('have.value', '');
+            lmsCollectionIdInput().should('be.visible').and('have.value', '');
+            customerNameInput().should('be.visible').and('have.value', '');
+            currencySelect().should('be.visible').and('contain.text', 'All');
 
-            // Target the modal natively to ensure it has fully animated into the DOM
-            cy.get('[role="dialog"]').should('be.visible').within(() => {
-                // Verify Modal Title
-                cy.contains('Add Payment').should('be.visible');
+            // Global clear button should be disabled when no filter is applied
+            globalClearBtn().should('be.visible').and('be.disabled');
 
-                // Verify Form Fields
-                cy.contains('Contract number *').should('be.visible');
-                cy.contains('Collection Method *').should('be.visible');
-
-                // Verify Currency Buttons
-                cy.contains('Currency *').should('be.visible');
-                cy.contains('USD').should('be.visible');
-                cy.contains('THB').should('be.visible');
-                cy.contains('LAK').should('be.visible');
-
-                // Verify remaining inputs
-                cy.contains('Amount *').should('be.visible');
-                cy.contains('Payment Date *').should('be.visible');
-                cy.contains('Pay for *').should('be.visible');
-                cy.contains('Comment').scrollIntoView().should('be.visible');
-                cy.contains('Payment Receipt Image').should('be.visible');
-
-                // Verify action buttons
-                cy.contains('button', 'Cancel').should('be.visible');
-                cy.contains('button', 'Create').should('be.visible');
-
-                // Close the modal via Cancel button
-                cy.contains('button', 'Cancel').click();
-            });
-
-            // Assert the modal completely unmounts
-            cy.get('[role="dialog"]').should('not.exist');
-        });
-    });
-
-    describe('Add Payment Flow & Validation', () => {
-
-        it('should display validation errors when submitting an empty form', () => {
-            cy.contains('button, a', /Add Payment/i).click();
-
-            cy.get('[role="dialog"]').should('be.visible').within(() => {
-                // Attempt to submit the form without filling required fields
-                cy.contains('button', 'Create').click();
-
-                // FIX 1: Assert on the visible helper text rather than hidden DOM attributes
-                cy.contains('Contract number is required').should('be.visible');
-                cy.contains('Collection method is required').should('be.visible');
-                cy.contains('Currency is required').should('be.visible');
-
-                // Close the modal
-                cy.contains('button', 'Cancel').click();
-            });
-
-            cy.get('[role="dialog"]').should('not.exist');
-        });
-        it('should successfully fill out the Cash payment form, upload a receipt, and submit', () => {
-            cy.contains('button, a', /Add Payment/i).click();
-
-            // --- 1. Contract Number Dropdown (Autocomplete) ---
-            cy.get('[role="dialog"]').should('be.visible').within(() => {
-                cy.contains('Contract number *').parent().click();
-                cy.get('input[placeholder="Search by contract number"]').should('be.visible').type('2049673');
-            });
-            // Step OUT of the modal to select the option from the MUI Portal listbox
-            cy.get('[role="listbox"]').should('be.visible').find('li').first().click();
-
-            // --- 2. Collection Method Dropdown ---
-            cy.get('[role="dialog"]').within(() => {
-                cy.contains('Collection Method *').parent().click();
-            });
-            // Specifically select 'Cash' from the dropdown list
-            cy.get('[role="listbox"]').should('be.visible').contains('li', 'Cash').click();
-
-            // --- 3. Person who Collect Dropdown ---
-            cy.get('[role="dialog"]').within(() => {
-                // Label has changed back to "Person who Collect *" for Cash mode
-                cy.contains(/Person who Collect \*/i).parent().click();
-                cy.get('input[placeholder="Search by staff name"]').should('be.visible').type('Admin');
-            });
-            cy.get('[role="listbox"]').should('be.visible').find('li').first().click();
-
-            // --- 4. Branch Dropdown (Dynamic Field for Cash) ---
-            cy.get('[role="dialog"]').within(() => {
-                cy.contains('Branch *').scrollIntoView().parent().click();
-                // Simulating typing 'a' as shown in the screenshot to trigger autocomplete
-                cy.focused().type('a'); 
-            });
-            // Select the first matching branch (e.g., Head Office / Savannakhet)
-            cy.get('[role="listbox"]').should('be.visible').find('li').first().click();
-
-            // --- 5. Collection Place Dropdown (Dynamic Field for Cash) ---
-            cy.get('[role="dialog"]').within(() => {
-                cy.contains('Collection Place *').scrollIntoView().parent().click();
-            });
-            // Specifically click "Office" as shown in the screenshot
-            cy.get('[role="listbox"]').should('be.visible').contains('li', 'Office').click();
-
-            // --- 6. Currency, Amount, and Date ---
-            cy.get('[role="dialog"]').within(() => {
-                // Select Currency
-                cy.contains('USD').click();
-
-                // Type Amount
-                cy.contains('Amount *').scrollIntoView().parent().find('input').type('250.00');
-
-                // Type Payment Date (Cypress requires YYYY-MM-DD for date inputs)
-                cy.contains('Payment Date *').scrollIntoView().parent().find('input').type('2026-09-07');
-            });
-
-            // --- 7. Pay For Dropdown ---
-            cy.get('[role="dialog"]').within(() => {
-                cy.contains('Pay for *').scrollIntoView().parent().click();
-            });
-            cy.get('[role="listbox"]').should('be.visible').find('li').last().click();
-
-            // --- 8. Comment ---
-            cy.get('[role="dialog"]').within(() => {
-                cy.contains(/Comment/i).scrollIntoView().parent().find('textarea, input').first().type('Automated cash payment with receipt upload');
-            });
-
-           // --- 9. Payment Receipt Image Upload ---
-            cy.get('[role="dialog"]').within(() => {
-                cy.contains('Payment Receipt Image').scrollIntoView();
-                
-                // FIX: Added .first() because cy.get() yielded 3 hidden file inputs.
-                // Cypress requires a single target element for the .selectFile() command.
-                cy.get('input[type="file"]').first().selectFile({
-                    contents: Cypress.Buffer.from('mock image data'),
-                    fileName: 'receipt.png',
-                    mimeType: 'image/png'
-                }, { force: true });
-
-                // Verify the UI updates to show a file was selected (assuming it changes from "No file selected")
-                cy.contains('receipt.png').should('exist');
-            });
-
-            // --- 10. Submit ---
-            cy.get('[role="dialog"]').within(() => {
-                cy.contains('button', 'Create').click();
-            });
-
-            // Verify the modal closes automatically after submission
-            cy.get('[role="dialog"]').should('not.exist');
-
-            // Verify the success toast notification appears
-            cy.contains(/Payment added successfully|Payment created/i).should('be.visible');
+            // Individual inline clear buttons should not exist when inputs are empty
+            clearContractNoBtn().should('not.exist');
+            clearLmsCollectionIdBtn().should('not.exist');
+            clearCustomerNameBtn().should('not.exist');
         });
 
-        it('should successfully fill out the form, submit the payment, and show a success notification', () => {
-            cy.contains('button, a', /Add Payment/i).click();
+        it('should filter by Contract Number and update table results', () => {
+            // Pick a real contract number from the first row to ensure accurate assertion
+            tableRows().first().find('td').eq(COL['Contract No']).invoke('text').then((text) => {
+                const targetContractNo = text.trim();
 
-            // --- 1. Contract Number Dropdown (Autocomplete) ---
-            cy.get('[role="dialog"]').should('be.visible').within(() => {
-                cy.contains('Contract number *').parent().click();
-                cy.get('input[placeholder="Search by contract number"]').should('be.visible').type('2049673');
+                cy.intercept('GET', '**/api/captures*filter=*').as('filterContractNo');
+                contractNoInput().type(targetContractNo);
+
+                cy.wait('@filterContractNo', { timeout: 20000 });
+                tableRows().should('have.length.greaterThan', 0);
+                tableRows().first().find('td').eq(COL['Contract No']).should('contain.text', targetContractNo);
+
+                // Global Clear button and inline Clear button should now be enabled/visible
+                globalClearBtn().should('be.enabled');
+                clearContractNoBtn().should('be.visible');
             });
-            // Step OUT of the modal to select the option from the MUI Portal listbox
-            cy.get('[role="listbox"]').should('be.visible').find('li').first().click();
-
-            // --- 2. Collection Method Dropdown ---
-            cy.get('[role="dialog"]').within(() => {
-                cy.contains('Collection Method *').parent().click();
-            });
-            // Selects "Bank Wire" (or the last valid option) which dynamically changes the next field
-            cy.get('[role="listbox"]').should('be.visible').find('li').last().click();
-
-            // // --- 3. Person who Collect Dropdown ---
-            // cy.get('[role="dialog"]').within(() => {
-            //     // FIX: Used a case-insensitive regex to handle "Collect" vs "collect" safely
-            //     cy.contains(/Person who collect bank evidence \*/i).parent().click();
-            //     cy.get('input[placeholder="Search by staff name"]').should('be.visible').type('Admin');
-            // });
-            // cy.get('[role="listbox"]').should('be.visible').find('li').last().click();
-
-            // --- 4. Currency, Amount, and Date ---
-            cy.get('[role="dialog"]').within(() => {
-                // Select Currency
-                cy.contains('USD').click();
-
-                // Type Amount
-                cy.contains('Amount *').parent().find('input').type('250.00');
-
-                // Type Payment Date
-                cy.contains('Payment Date *').parent().find('input').type('2026-09-07');
-            });
-
-            // --- 5. Dynamic Fields (Pay for & Comment) ---
-            // If they appear dynamically after selecting a contract, fill them out. Otherwise, skip.
-            cy.get('[role="dialog"]').within(() => {
-                cy.contains('Pay for *').scrollIntoView().parent().click();
-            });
-            // Step out of modal to interact with MUI Portal listbox
-            cy.get('[role="listbox"]').should('be.visible').find('li').last().click();
-
-            // --- 6. Comment and Submit ---
-            cy.get('[role="dialog"]').within(() => {
-                // Enter a comment (Using a regex to match "Comment / ຄໍາອະທິບາຍ" or "Enter comment")
-                cy.contains(/Comment/i).scrollIntoView().parent().find('textarea, input').first().type('Automated test payment via Cypress');
-
-                // Submit the form
-                cy.contains('button', 'Create').click();
-            });
-
-            // Verify the modal closes automatically after submission
-            cy.get('[role="dialog"]').should('not.exist');
-
-            // Verify the success toast notification appears
-            cy.contains(/Payment added successfully|Payment created/i).should('be.visible');
         });
-    });
-    describe('Row-Level Actions', () => {
-        it('should trigger the view action when the Eye icon is clicked', () => {
-            cy.get('tbody tr').first().within(() => {
-                // Extract the Contract No for verification inside the modal
-                cy.get('td').eq(1).invoke('text').then((text) => {
-                    const cleanText = text.replace(/\s+/g, ' ').trim();
-                    cy.wrap(cleanText).as('rowContractNo');
-                });
 
-                // Click the action (Eye) icon in the last column
-                // eq(0) guarantees we only click the first button, avoiding nested SVG issues
-                cy.get('td').last().find('button').eq(0).click();
+        it('should filter by LMS Collection ID and update table results', () => {
+            tableRows().first().find('td').eq(COL['LMS Collection ID']).invoke('text').then((text) => {
+                const targetCollectionId = text.trim();
+
+                cy.intercept('GET', '**/api/captures*lms_collection_id=*').as('filterCollectionId');
+                lmsCollectionIdInput().type(targetCollectionId);
+
+                cy.wait('@filterCollectionId', { timeout: 20000 });
+                tableRows().should('have.length.greaterThan', 0);
+                tableRows().first().find('td').eq(COL['LMS Collection ID']).should('contain.text', targetCollectionId);
+
+                clearLmsCollectionIdBtn().should('be.visible');
             });
+        });
 
-            // Verify the resulting modal opens natively
-            cy.get('[role="dialog"]').should('be.visible').within(() => {
-                // Assuming the modal shows the contract number somewhere inside
-                cy.get('@rowContractNo').then((contractNo) => {
-                    cy.contains(contractNo).should('be.visible');
-                });
+        it('should filter by Customer Name and update table results', () => {
+            tableRows().first().find('td').eq(COL['Customer']).invoke('text').then((text) => {
+                const rawName = text.trim().split(/\s+/)[0]; // Use first name word
+                if (rawName && rawName.length > 2) {
+                    cy.intercept('GET', '**/api/captures*customer_name=*').as('filterCustomer');
+                    customerNameInput().type(rawName);
+
+                    cy.wait('@filterCustomer', { timeout: 20000 });
+                    tableRows().should('have.length.greaterThan', 0);
+                    tableRows().first().find('td').eq(COL['Customer']).should(($td) => {
+                        expect($td.text().toLowerCase()).to.include(rawName.toLowerCase());
+                    });
+
+                    clearCustomerNameBtn().should('be.visible');
+                }
             });
+        });
 
-            // Close the modal safely (Handling either a cancel button or an 'X' icon)
-            cy.get('[role="dialog"]').then(($dialog) => {
-                if ($dialog.find('button:contains("Cancel")').length > 0) {
-                    cy.wrap($dialog).contains('button', 'Cancel').click();
-                } else {
-                    cy.wrap($dialog).find('button[aria-label="close"], svg[data-testid="CloseIcon"]').first().click({ force: true });
+        it('should filter by Currency dropdown options (USD, THB, LAK, All)', () => {
+            // Select THB
+            cy.intercept('GET', '**/api/captures*currency=*').as('filterCurrency');
+            selectCurrencyOption('THB');
+            cy.wait('@filterCurrency', { timeout: 20000 });
+
+            // Currency column or empty state
+            tableRows().then(($rows) => {
+                if (!$rows.text().includes(EMPTY_TEXT)) {
+                    $rows.each((_, row) => {
+                        const cell = Cypress.$(row).find('td').eq(COL['Currency']).text().trim();
+                        expect(cell).to.eq('THB');
+                    });
                 }
             });
 
-            // Assert it closes
-            cy.get('[role="dialog"]').should('not.exist');
+            // Reset back to 'All'
+            cy.intercept('GET', '**/api/captures*').as('filterAll');
+            selectCurrencyOption('All');
+            cy.wait('@filterAll', { timeout: 20000 });
         });
     });
 
-    describe('Pagination', () => {
-        it('should disable the Previous button on the first page', () => {
-            cy.contains(/Page 1 of/i).should('be.visible');
-            cy.contains('button', /Previous/i).should('be.visible').and('be.disabled');
-            cy.contains('button', /Next/i).should('be.visible').and('not.be.disabled');
+    // =========================================================================
+    // 4. Clear Actions (Inline Clear & Global Clear)
+    // =========================================================================
+    describe('4. Clear Actions', () => {
+        it('should clear individual field using the inline clear button', () => {
+            contractNoInput().type('2006047');
+            clearContractNoBtn().should('be.visible').click();
+
+            contractNoInput().should('have.value', '');
+            clearContractNoBtn().should('not.exist');
         });
 
-        it('should navigate to the next page and back to the previous page', () => {
-            // Setup dynamic intercept for pagination
-            cy.intercept('GET', '**/api/*captures*').as('getPaymentsPage');
+        it('should reset all filters and reload default data when Global Clear button is clicked', () => {
+            contractNoInput().type('2000022');
+            customerNameInput().type('Somchai');
+            selectCurrencyOption('USD');
 
-            // Click Next
-            cy.contains('button', /Next/i).click();
-            cy.wait('@getPaymentsPage');
+            globalClearBtn().should('be.enabled').click();
 
-            // Verify Page 2 and enabled Previous button
-            cy.contains(/Page 2 of/i).should('be.visible');
-            cy.contains('button', /Previous/i).should('not.be.disabled');
+            // Assert all fields returned to default
+            contractNoInput().should('have.value', '');
+            customerNameInput().should('have.value', '');
+            lmsCollectionIdInput().should('have.value', '');
+            currencySelect().should('contain.text', 'All');
+            globalClearBtn().should('be.disabled');
 
-            // Click Previous
-            cy.contains('button', /Previous/i).click();
-            cy.wait('@getPaymentsPage');
+            // Table reloaded with default data
+            tableRows().should('have.length.within', 1, PAGE_SIZE);
+        });
+    });
 
-            // Verify return to Page 1
-            cy.contains(/Page 1 of/i).should('be.visible');
-            cy.contains('button', /Previous/i).should('be.disabled');
+    // =========================================================================
+    // 5. Data Table Rendering & Column Integrity
+    // =========================================================================
+    describe('5. Data Table Rendering & Column Integrity', () => {
+        it('should render all 8 expected columns in correct order', () => {
+            tableHeaders().should('have.length', COLUMNS.length).each(($th, idx) => {
+                expect($th.text().trim()).to.eq(COLUMNS[idx]);
+            });
+        });
+
+        it('should render table rows with expected cell formats and action buttons', () => {
+            tableRows().should('have.length.within', 1, PAGE_SIZE).each(($row) => {
+                cy.wrap($row).find('td').should('have.length', COLUMNS.length);
+
+                // LMS Collection ID & Contract No
+                cy.wrap($row).find('td').eq(COL['LMS Collection ID']).invoke('text').should('not.be.empty');
+                cy.wrap($row).find('td').eq(COL['Contract No']).invoke('text').should('not.be.empty');
+
+                // Customer info
+                cy.wrap($row).find('td').eq(COL['Customer']).invoke('text').should('not.be.empty');
+
+                // Amount numeric
+                cy.wrap($row).find('td').eq(COL['Amount']).invoke('text').should('match', /[\d,.]+/);
+
+                // Currency code
+                cy.wrap($row).find('td').eq(COL['Currency']).invoke('text').should('match', /USD|THB|LAK/);
+
+                // Status Chip (Pending / Approved)
+                cy.wrap($row).find('td').eq(COL['Status']).find('.MuiChip-root').should('be.visible');
+
+                // Action View Button
+                cy.wrap($row).find('td').eq(COL['Actions']).within(() => {
+                    cy.get('button[aria-label="View"], [data-testid="VisibilityIcon"]').should('be.visible');
+                });
+            });
+        });
+    });
+
+    // =========================================================================
+    // 6. Empty State & Non-Existent Search
+    // =========================================================================
+    describe('6. Empty State Handling', () => {
+        it('should display the "No payment captures found" message when search yields no results', () => {
+            const nonExistentId = '99999999999';
+            cy.intercept('GET', '**/api/captures*').as('emptySearch');
+            contractNoInput().type(nonExistentId);
+            cy.wait('@emptySearch', { timeout: 20000 });
+
+            tableRows().should('have.length', 1);
+            cy.contains('td', EMPTY_TEXT)
+                .should('be.visible')
+                .invoke('attr', 'colspan')
+                .should('be.oneOf', ['7', '8']);
+
+            // Pagination should disable navigation
+            prevButton().should('be.disabled');
+            nextButton().should('be.disabled');
+        });
+    });
+
+    // =========================================================================
+    // 7. Payment Details Modal Dialog
+    // =========================================================================
+    describe('7. Payment Details Modal Dialog', () => {
+        it('should open the Payment Details modal when clicking the View action button', () => {
+            // Capture row Contract No and LMS Collection ID
+            tableRows().first().within(() => {
+                cy.get('td').eq(COL['Contract No']).invoke('text').as('selectedContractNo');
+                cy.get('td').eq(COL['LMS Collection ID']).invoke('text').as('selectedLmsId');
+            });
+
+            // Click View button
+            viewButton(0).click();
+
+            // Modal assertions
+            dialog().should('be.visible');
+            dialog().within(() => {
+                cy.contains('.MuiDialogTitle-root, h2', 'Payment Details').should('be.visible');
+                cy.get('button[aria-label="close"], [data-testid="CloseIcon"]').should('be.visible');
+
+                // Customer Details card
+                cy.get('@selectedContractNo').then((contractNo) => {
+                    cy.contains(contractNo.trim()).should('be.visible');
+                });
+
+                // Section Headers
+                cy.contains(/Payment Information/i).should('be.visible');
+                cy.contains(/Payment Documents/i).should('be.visible');
+                cy.contains(/Sync Information/i).should('be.visible');
+
+                // Sync Information must reflect selected LMS Collection ID
+                cy.get('@selectedLmsId').then((lmsId) => {
+                    cy.contains(lmsId.trim()).should('be.visible');
+                });
+            });
+
+            // Close dialog via Close button
+            dialogCloseBtn().click();
+            dialog().should('not.exist');
+        });
+
+        it('should close the Payment Details dialog via the Escape key', () => {
+            viewButton(0).click();
+            dialog().should('be.visible');
+
+            cy.get('body').type('{esc}');
+            dialog().should('not.exist');
+        });
+
+        it('should close the Payment Details dialog by clicking outside (backdrop)', () => {
+            viewButton(0).click();
+            dialog().should('be.visible');
+
+            // Click backdrop outside the modal paper
+            cy.get('.MuiBackdrop-root').filter(':visible').first().click({ force: true });
+            dialog().should('not.exist');
+        });
+    });
+
+    // =========================================================================
+    // 8. Pagination Controls
+    // =========================================================================
+    describe('8. Pagination Controls', () => {
+        it('should have the Previous button disabled on page 1', () => {
+            prevButton().should('be.visible').and('be.disabled');
+            nextButton().should('be.visible').and('not.be.disabled');
+            pageButton(1).should('be.visible');
+        });
+
+        it('should navigate to page 2 via Next button and return via Previous button', () => {
+            cy.intercept('GET', '**/api/captures*page=2*').as('getPage2');
+            nextButton().click();
+            cy.wait('@getPage2', { timeout: 20000 });
+
+            // On page 2, Previous button is enabled
+            prevButton().should('be.enabled');
+            pageButton(2).should('be.visible');
+
+            // Click Previous to return to page 1
+            cy.intercept('GET', '**/api/captures*page=1*').as('getPage1');
+            prevButton().click();
+            cy.wait('@getPage1', { timeout: 20000 });
+
+            prevButton().should('be.disabled');
+            pageButton(1).should('be.visible');
+        });
+
+        it('should navigate directly to a page when clicking a page number button', () => {
+            cy.intercept('GET', '**/api/captures*page=2*').as('clickPage2');
+            pageButton(2).click();
+            cy.wait('@clickPage2', { timeout: 20000 });
+
+            tableRows().should('have.length.within', 1, PAGE_SIZE);
+            prevButton().should('be.enabled');
+        });
+    });
+
+    // =========================================================================
+    // 9. Network & Error Handling
+    // =========================================================================
+    describe('9. Network & Error Handling', () => {
+        it('should handle backend 500 error gracefully without crashing the UI', () => {
+            cy.intercept('GET', API_PATH, {
+                statusCode: 500,
+                body: { message: 'Internal Server Error' }
+            }).as('getPaymentsFailure');
+
+            cy.reload();
+            cy.wait('@getPaymentsFailure');
+
+            // Ensure the main table structure and navigation bar remain intact
+            cy.get('header.MuiAppBar-root').should('be.visible');
+            table().should('exist');
         });
     });
 });
